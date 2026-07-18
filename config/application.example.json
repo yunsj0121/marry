@@ -1,0 +1,20 @@
+{
+  "base_url": "https://s-wedding.samsungcard.com",
+  "company_name": "삼성화재",
+  "employee_id": "사원번호를 입력하세요",
+  "employee_password": "비밀번호를 입력하세요",
+  "hall_name": "원하는 웨딩홀 이름",
+  "wedding_date": "2026-10-03",
+  "preferred_time": "12:00",
+  "applicant_name": "홍길동",
+  "applicant_phone": "010-1234-5678",
+  "partner_name": "김삼성",
+  "guest_count": 200,
+  "memo": "자동 신청 테스트입니다.",
+  "headless": false,
+  "slow_mo_ms": 100,
+  "dry_run": true,
+  "manual_timeout_ms": 300000,
+  "mobile": false,
+  "device_name": "iPhone 14"
+}
