@@ -1,11 +1,6 @@
 name: Wedding seat monitor
-# Secure keyboard-event diagnostic
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/wedding-seat-monitor.yml"
   schedule:
     - cron: "7 * * * *"
       timezone: "Asia/Seoul"
@@ -34,6 +29,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Ensure OCR engine
+        run: command -v tesseract || (sudo apt-get update && sudo apt-get install -y tesseract-ocr)
       - name: Install project
         run: pip install -e . pytest
       - name: Install Chromium
