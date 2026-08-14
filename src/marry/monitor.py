@@ -167,7 +167,7 @@ def login(page: Page, employee_id: str, password: str) -> None:
 
     login_heading = page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).first
     try:
-        login_heading.wait_for(state="visible", timeout=8_000)
+        page.locator("#acoEmpno").wait_for(state="visible", timeout=15_000)
     except PlaywrightTimeoutError as exc:
         raise RuntimeError("회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다.") from exc
 
@@ -215,7 +215,7 @@ def login(page: Page, employee_id: str, password: str) -> None:
         f"confirm_button={page.get_by_role('button', name='확인').count()}"
     )
     if handle_security_page(page):
-        login_heading.wait_for(state="visible", timeout=10_000)
+        page.locator("#acoEmpno").wait_for(state="visible", timeout=15_000)
         fill_first(page, id_selectors, employee_id)
         fill_first(page, password_selectors, password)
         page.locator("#loginButn").click(timeout=5_000)
