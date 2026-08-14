@@ -78,9 +78,6 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
 def handle_security_page(page: Page) -> bool:
     if not has_visible_text(page, re.compile(r"보안프로그램\s*설치여부")):
         return False
-    (ARTIFACT_DIR / "security-page.html").write_text(
-        page.content(), encoding="utf-8"
-    )
     radios = page.locator("input[type=radio]")
     selected = False
     if radios.count() >= 2:
@@ -158,17 +155,11 @@ def login(page: Page, employee_id: str, password: str) -> None:
                 ):
                     break
                 page.wait_for_timeout(500)
-            (ARTIFACT_DIR / "post-company.html").write_text(
-                page.content(), encoding="utf-8"
-            )
             break
         except PlaywrightTimeoutError:
             continue
 
     if has_visible_text(page, re.compile(r"보안프로그램\s*설치여부")):
-        (ARTIFACT_DIR / "security-page.html").write_text(
-            page.content(), encoding="utf-8"
-        )
         handle_security_page(page)
 
     login_heading = page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).first
@@ -213,6 +204,13 @@ def login(page: Page, employee_id: str, password: str) -> None:
     except PlaywrightTimeoutError:
         pass
     page.wait_for_timeout(5_000)
+    print(f"로그인 제출 후 URL: {page.url}")
+    print(
+        "제출 후 요소: "
+        f"login_button={page.locator('#loginButn').count()}, "
+        f"radio={page.locator('input[type=radio]').count()}, "
+        f"confirm_button={page.get_by_role('button', name='확인').count()}"
+    )
     if handle_security_page(page):
         login_heading.wait_for(state="visible", timeout=10_000)
         fill_first(page, id_selectors, employee_id)
