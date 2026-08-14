@@ -1,5 +1,5 @@
 name: Wedding seat monitor
-# Login alert diagnostic
+# Keypad row-mapping diagnostic
 
 on:
   push:
