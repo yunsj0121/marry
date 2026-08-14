@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-14T14:56:57+00:00",
-  "detail": "RuntimeError: 로그인 입력란을 찾거나 입력하지 못했습니다."
+  "checked_at": "2026-08-14T15:00:48+00:00",
+  "detail": "RuntimeError: 보안키패드를 열지 못했습니다."
 }
