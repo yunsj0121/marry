@@ -111,6 +111,9 @@ def login(page: Page, employee_id: str, password: str) -> None:
                 ):
                     break
                 page.wait_for_timeout(500)
+            (ARTIFACT_DIR / "post-company.html").write_text(
+                page.content(), encoding="utf-8"
+            )
             break
         except PlaywrightTimeoutError:
             continue
