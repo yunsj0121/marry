@@ -65,6 +65,7 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
 
 
 def login(page: Page, employee_id: str, password: str) -> None:
+    page.on("dialog", lambda dialog: dialog.accept())
     page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
 
     company_inputs = [
@@ -77,15 +78,24 @@ def login(page: Page, employee_id: str, password: str) -> None:
         try:
             page.locator(selector).first.fill("삼성화재", timeout=1_500)
             click_text(page, ["검색", "조회"])
-            click_text(page, ["삼성화재"], timeout=8_000)
-            click_text(page, ["선택 완료", "선택완료"], timeout=4_000)
-            click_text(page, ["확인"], timeout=4_000)
+            if not click_text(page, ["삼성화재"], timeout=8_000):
+                continue
+            if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
+                continue
+            page.wait_for_timeout(1_500)
             break
         except PlaywrightTimeoutError:
             continue
 
     if click_text(page, ["설치하지 않음", "설치하지않음"], timeout=5_000):
         click_text(page, ["확인"], timeout=5_000)
+        page.wait_for_timeout(1_500)
+
+    login_heading = page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).first
+    try:
+        login_heading.wait_for(state="visible", timeout=8_000)
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError("회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다.") from exc
 
     fill_first(
         page,
