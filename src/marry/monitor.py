@@ -221,7 +221,7 @@ def enter_password_with_keypad(page: Page, password: str) -> None:
             if key not in key_positions:
                 raise RuntimeError("보안키패드 OCR에서 필요한 문자를 찾지 못했습니다.")
             if character.isupper():
-                page.mouse.click(crop_left + 55, crop_top + 190)
+                page.mouse.click(crop_left + 55, crop_top + 210)
                 page.wait_for_timeout(100)
             page.mouse.click(*key_positions[key])
             page.wait_for_timeout(80)
@@ -373,7 +373,11 @@ def handle_security_page(page: Page) -> bool:
 
 
 def login(page: Page, employee_id: str, password: str) -> None:
-    page.on("dialog", lambda dialog: dialog.accept())
+    def accept_dialog(dialog) -> None:
+        print(f"브라우저 알림: {dialog.message}")
+        dialog.accept()
+
+    page.on("dialog", accept_dialog)
     page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
 
     company_inputs = [
