@@ -80,7 +80,12 @@ def login(page: Page, employee_id: str, password: str) -> None:
         try:
             page.locator(selector).first.fill("삼성화재", timeout=1_500)
             click_text(page, ["검색", "조회"])
-            if not click_text(page, ["삼성화재"], timeout=8_000):
+            company_name = page.get_by_text(re.compile(r"^\s*삼성화재\s*$"))
+            company_name.first.wait_for(state="visible", timeout=8_000)
+            company_radios = page.locator("input[type=radio]")
+            if company_radios.count():
+                company_radios.first.check(force=True, timeout=3_000)
+            elif not click_text(page, ["삼성화재"], timeout=3_000):
                 continue
             if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
                 continue
