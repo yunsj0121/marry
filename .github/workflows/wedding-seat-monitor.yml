@@ -1,5 +1,5 @@
 name: Wedding seat monitor
-# OCR keypad diagnostic
+# OCR recognized-keys diagnostic
 
 on:
   push:
