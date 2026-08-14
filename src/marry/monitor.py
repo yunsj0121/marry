@@ -101,6 +101,9 @@ def login(page: Page, employee_id: str, password: str) -> None:
             continue
 
     if page.get_by_text(re.compile(r"보안프로그램\s*설치여부")).count():
+        (ARTIFACT_DIR / "security-page.html").write_text(
+            page.content(), encoding="utf-8"
+        )
         radios = page.locator("input[type=radio]")
         selected = False
         if radios.count() >= 2:
