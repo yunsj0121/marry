@@ -147,6 +147,73 @@ def enter_password_with_keypad(page: Page, password: str) -> None:
             x = crop_left + (ocr["left"][index] + ocr["width"][index] / 2) / scale
             y = crop_top + (ocr["top"][index] + ocr["height"][index] / 2) / scale
             key_positions[text.lower()] = (x, y)
+
+        if len(key_positions) < 20:
+            pixels = keypad_image.load()
+            image_width, image_height = keypad_image.size
+            light = set()
+            for pixel_y in range(image_height):
+                for pixel_x in range(image_width):
+                    red, green, blue = pixels[pixel_x, pixel_y]
+                    if min(red, green, blue) >= 165:
+                        light.add((pixel_x, pixel_y))
+
+            components: list[tuple[int, int, int, int]] = []
+            while light:
+                start = light.pop()
+                stack = [start]
+                min_x = max_x = start[0]
+                min_y = max_y = start[1]
+                count = 1
+                while stack:
+                    current_x, current_y = stack.pop()
+                    for neighbor in (
+                        (current_x - 1, current_y),
+                        (current_x + 1, current_y),
+                        (current_x, current_y - 1),
+                        (current_x, current_y + 1),
+                    ):
+                        if neighbor not in light:
+                            continue
+                        light.remove(neighbor)
+                        stack.append(neighbor)
+                        count += 1
+                        min_x = min(min_x, neighbor[0])
+                        max_x = max(max_x, neighbor[0])
+                        min_y = min(min_y, neighbor[1])
+                        max_y = max(max_y, neighbor[1])
+                component_width = max_x - min_x + 1
+                component_height = max_y - min_y + 1
+                if (
+                    22 <= component_width <= 75
+                    and 18 <= component_height <= 48
+                    and count >= 350
+                ):
+                    components.append((min_x, min_y, max_x + 1, max_y + 1))
+
+            for left, top, right, bottom in components:
+                key_image = keypad_image.crop((left, top, right, bottom))
+                key_image = key_image.resize(
+                    (key_image.width * 6, key_image.height * 6)
+                )
+                key_image = ImageOps.grayscale(key_image)
+                key_image = ImageEnhance.Contrast(key_image).enhance(2.5)
+                raw_key = pytesseract.image_to_string(
+                    key_image,
+                    config=(
+                        "--psm 10 "
+                        "-c tessedit_char_whitelist=0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    ),
+                ).strip()
+                recognized = next(
+                    (character for character in raw_key if character.isalnum()),
+                    "",
+                )
+                if recognized:
+                    key_positions[recognized.lower()] = (
+                        crop_left + (left + right) / 2,
+                        crop_top + (top + bottom) / 2,
+                    )
         print(f"보안키패드 OCR 인식 키: {sorted(key_positions)}")
 
         for character in password:
