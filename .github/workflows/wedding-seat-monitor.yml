@@ -1,5 +1,5 @@
 name: Wedding seat monitor
-# Application-form diagnostic
+# Application-start diagnostic
 
 on:
   push:
