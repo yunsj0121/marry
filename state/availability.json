@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-14T13:16:27+00:00",
+  "checked_at": "2026-08-14T13:18:55+00:00",
   "detail": "RuntimeError: 로그인 입력란을 찾거나 입력하지 못했습니다."
 }
