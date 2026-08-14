@@ -537,6 +537,14 @@ def select_hall(page: Page) -> None:
     page.goto(APPLICATION_URL, wait_until="domcontentloaded", timeout=30_000)
     if "login" in page.url.lower():
         raise RuntimeError("예약 화면으로 이동하는 동안 로그인 세션이 종료되었습니다.")
+    if has_visible_text(page, re.compile(r"삼성사옥\s*웨딩홀\s*신청")):
+        if not click_text(page, ["신청"], timeout=5_000):
+            raise RuntimeError("삼성사옥 웨딩홀 신청 버튼을 찾지 못했습니다.")
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=15_000)
+        except PlaywrightTimeoutError:
+            pass
+        page.wait_for_timeout(2_000)
     if page.get_by_text(TARGET_HALL, exact=True).count():
         return
     selectors = ["select", "[role=combobox]", "button", ".select", ".dropdown"]
