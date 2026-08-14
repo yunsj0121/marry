@@ -1,5 +1,5 @@
 name: Wedding seat monitor
-# Security storage diagnostic
+# Visible credential diagnostic
 
 on:
   push:
