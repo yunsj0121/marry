@@ -32,30 +32,35 @@ class MonitorState:
 
 def required_env(name: str) -> str:
     value = os.getenv(name)
+    value = value.strip() if value else ""
     if not value:
         raise RuntimeError(f"필수 GitHub Secret이 없습니다: {name}")
     return value
 
 
 def click_text(page: Page, candidates: list[str], timeout: int = 4_000) -> bool:
-    for text in candidates:
-        try:
-            page.get_by_text(re.compile(rf"^\s*{re.escape(text)}\s*$")).first.click(timeout=timeout)
-            return True
-        except PlaywrightTimeoutError:
-            pass
+    for frame in page.frames:
+        for text in candidates:
+            try:
+                frame.get_by_text(re.compile(rf"^\s*{re.escape(text)}\s*$")).first.click(
+                    timeout=timeout
+                )
+                return True
+            except PlaywrightTimeoutError:
+                pass
     return False
 
 
 def fill_first(page: Page, selectors: list[str], value: str) -> None:
-    for selector in selectors:
-        field = page.locator(selector).first
-        try:
-            field.fill(value, timeout=2_000)
-            if field.input_value() == value:
-                return
-        except (PlaywrightTimeoutError, AssertionError):
-            pass
+    for frame in page.frames:
+        for selector in selectors:
+            field = frame.locator(selector).first
+            try:
+                field.fill(value, timeout=2_000)
+                if field.input_value() == value:
+                    return
+            except (PlaywrightTimeoutError, AssertionError):
+                pass
     raise RuntimeError("로그인 입력란을 찾거나 입력하지 못했습니다.")
 
 
@@ -246,6 +251,12 @@ def run() -> int:
                 select_hall(page)
                 status, detail = read_target_status(page)
                 page.screenshot(path=ARTIFACT_DIR / "latest.png", full_page=True)
+            except Exception:
+                try:
+                    page.screenshot(path=ARTIFACT_DIR / "failure.png", full_page=True)
+                except Exception as screenshot_error:  # noqa: BLE001
+                    print(f"실패 화면 저장도 실패했습니다: {screenshot_error}", file=sys.stderr)
+                raise
             finally:
                 context.close()
                 browser.close()
