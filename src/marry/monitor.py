@@ -79,6 +79,82 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
     raise RuntimeError("로그인 입력란을 찾거나 입력하지 못했습니다.")
 
 
+def enter_password_with_keypad(page: Page, password: str) -> None:
+    password_fields = page.locator("input[type=password]")
+    for index in range(password_fields.count()):
+        field = password_fields.nth(index)
+        if field.is_visible():
+            field.click(force=True, timeout=3_000)
+            break
+    page.wait_for_timeout(500)
+
+    keypad_heading = page.get_by_text("보안키패드", exact=True)
+    visible_heading = None
+    for index in range(keypad_heading.count()):
+        if keypad_heading.nth(index).is_visible():
+            visible_heading = keypad_heading.nth(index)
+            break
+    if visible_heading is None:
+        raise RuntimeError("보안키패드를 열지 못했습니다.")
+
+    keypad = visible_heading.locator("xpath=..")
+    for levels_up in range(1, 6):
+        candidate = visible_heading.locator("xpath=" + "/.." * levels_up)
+        try:
+            if "입력완료" in candidate.inner_text(timeout=1_000):
+                keypad = candidate
+                break
+        except PlaywrightTimeoutError:
+            continue
+
+    key_elements = keypad.locator("button, a, [role=button], li, td, span")
+
+    def click_key(character: str) -> None:
+        target_character = character
+        if character.isupper():
+            shift_candidates = keypad.locator(
+                "[aria-label*=shift i], [title*=shift i], [class*=shift i]"
+            )
+            clicked_shift = False
+            for shift_index in range(shift_candidates.count()):
+                shift = shift_candidates.nth(shift_index)
+                if shift.is_visible():
+                    shift.click(force=True, timeout=2_000)
+                    clicked_shift = True
+                    break
+            if not clicked_shift:
+                raise RuntimeError("보안키패드의 대문자 전환 키를 찾지 못했습니다.")
+            target_character = character.lower()
+
+        for key_index in range(key_elements.count()):
+            key = key_elements.nth(key_index)
+            if not key.is_visible():
+                continue
+            try:
+                compact = re.sub(r"\s+", "", key.inner_text(timeout=500))
+            except PlaywrightTimeoutError:
+                continue
+            if not compact or compact[0] != target_character:
+                continue
+            suffix = compact[1:]
+            if suffix and not all("ㄱ" <= char <= "힣" for char in suffix):
+                continue
+            key.click(force=True, timeout=2_000)
+            return
+        raise RuntimeError("보안키패드에서 비밀번호 문자를 찾지 못했습니다.")
+
+    for character in password:
+        if character.isalnum():
+            click_key(character)
+        else:
+            if not click_text(page, ["특수"], timeout=3_000):
+                raise RuntimeError("보안키패드의 특수문자 전환 키를 찾지 못했습니다.")
+            click_key(character)
+
+    if not click_text(page, ["입력완료"], timeout=3_000):
+        raise RuntimeError("보안키패드의 입력완료 버튼을 찾지 못했습니다.")
+
+
 def handle_security_page(page: Page) -> bool:
     radios = page.locator("input[type=radio]")
     is_security_url = "UWDDWSCO02M2.jsp" in page.url
@@ -262,7 +338,10 @@ def login(page: Page, employee_id: str, password: str) -> None:
         try:
             fill_first(page, id_selectors, employee_id)
             print("보안확인 후 사원번호 입력 성공")
-            fill_first(page, password_selectors, password)
+            try:
+                fill_first(page, password_selectors, password)
+            except RuntimeError:
+                enter_password_with_keypad(page, password)
             print("보안확인 후 비밀번호 입력 성공")
         except RuntimeError:
             print(f"보안확인 후 재입력 실패 URL: {page.url}")
