@@ -104,7 +104,7 @@ def login(page: Page, employee_id: str, password: str) -> None:
                 continue
             if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
                 continue
-            for _ in range(20):
+            for _ in range(40):
                 if (
                     has_visible_text(page, re.compile(r"보안프로그램\s*설치여부"))
                     or has_visible_text(page, re.compile(r"사원번호.*아이디.*로그인"))
