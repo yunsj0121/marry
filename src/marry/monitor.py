@@ -200,8 +200,11 @@ def login(page: Page, employee_id: str, password: str) -> None:
         login_heading.wait_for(state="visible", timeout=8_000)
         fill_first(page, id_selectors, employee_id)
         fill_first(page, password_selectors, password)
-    if not click_text(page, ["로그인"], timeout=5_000):
-        page.keyboard.press("Enter")
+    try:
+        page.locator("#loginButn").click(timeout=5_000)
+    except PlaywrightTimeoutError:
+        if not click_text(page, ["로그인"], timeout=5_000):
+            page.keyboard.press("Enter")
     page.wait_for_timeout(2_000)
     if "login" in page.url.lower() or page.get_by_text("사원번호(아이디) 로그인").count():
         raise RuntimeError("자동 로그인에 실패했습니다. 보안키패드 또는 추가 인증을 확인하세요.")
