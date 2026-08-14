@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-14T13:02:37+00:00",
-  "detail": "RuntimeError: 회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다."
+  "checked_at": "2026-08-14T13:05:49+00:00",
+  "detail": "Error: Locator.check: Element is not visible\nCall log:\n  - waiting for locator(\"input[type=radio]\").first\n    - locator resolved to <input value=\"33\" type=\"radio\" name=\"fn_rd_item\" id=\"fi_rd_item33\"/>\n  - attempting click action\n    - scrolling into view if needed\n"
 }
