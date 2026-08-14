@@ -75,6 +75,50 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
     raise RuntimeError("로그인 입력란을 찾거나 입력하지 못했습니다.")
 
 
+def handle_security_page(page: Page) -> bool:
+    if not has_visible_text(page, re.compile(r"보안프로그램\s*설치여부")):
+        return False
+    radios = page.locator("input[type=radio]")
+    selected = False
+    if radios.count() >= 2:
+        try:
+            radios.last.evaluate(
+                """element => {
+                    element.checked = true;
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                }"""
+            )
+            selected = True
+        except Exception:  # noqa: BLE001 - fall back to clicking the card
+            pass
+    if not selected:
+        headings = page.get_by_text(re.compile(r"^\s*설치하지\s*않음\s*$"))
+        for index in range(headings.count()):
+            no_install = headings.nth(index)
+            if not no_install.is_visible():
+                continue
+            for levels_up in [3, 2, 1, 0]:
+                target = no_install if levels_up == 0 else no_install.locator(
+                    "xpath=" + "/.." * levels_up
+                )
+                try:
+                    target.click(force=True, timeout=2_000)
+                    page.wait_for_timeout(250)
+                    selected = True
+                    break
+                except PlaywrightTimeoutError:
+                    continue
+            if selected:
+                break
+    if not selected:
+        raise RuntimeError("보안프로그램 '설치하지 않음'을 선택하지 못했습니다.")
+    if not click_text(page, ["확인"], timeout=5_000):
+        raise RuntimeError("보안프로그램 선택 화면의 확인 버튼을 누르지 못했습니다.")
+    page.wait_for_timeout(3_000)
+    return True
+
+
 def login(page: Page, employee_id: str, password: str) -> None:
     page.on("dialog", lambda dialog: dialog.accept())
     page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
@@ -122,46 +166,7 @@ def login(page: Page, employee_id: str, password: str) -> None:
         (ARTIFACT_DIR / "security-page.html").write_text(
             page.content(), encoding="utf-8"
         )
-        radios = page.locator("input[type=radio]")
-        selected = False
-        if radios.count() >= 2:
-            try:
-                radios.last.evaluate(
-                    """element => {
-                        element.checked = true;
-                        element.dispatchEvent(new Event('input', { bubbles: true }));
-                        element.dispatchEvent(new Event('change', { bubbles: true }));
-                    }"""
-                )
-                selected = True
-            except Exception:  # noqa: BLE001 - fall back to clicking the card
-                pass
-        if not selected:
-            headings = page.get_by_text(re.compile(r"^\s*설치하지\s*않음\s*$"))
-            for index in range(headings.count()):
-                no_install = headings.nth(index)
-                if not no_install.is_visible():
-                    continue
-                # Desktop renders the choice as a large card. Clicking one of
-                # its ancestors is needed because the heading itself has no handler.
-                for levels_up in [3, 2, 1, 0]:
-                    target = no_install if levels_up == 0 else no_install.locator(
-                        "xpath=" + "/.." * levels_up
-                    )
-                    try:
-                        target.click(force=True, timeout=2_000)
-                        page.wait_for_timeout(250)
-                        selected = True
-                        break
-                    except PlaywrightTimeoutError:
-                        continue
-                if selected:
-                    break
-        if not selected:
-            raise RuntimeError("보안프로그램 '설치하지 않음'을 선택하지 못했습니다.")
-        if not click_text(page, ["확인"], timeout=5_000):
-            raise RuntimeError("보안프로그램 선택 화면의 확인 버튼을 누르지 못했습니다.")
-        page.wait_for_timeout(2_000)
+        handle_security_page(page)
 
     login_heading = page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).first
     try:
@@ -182,16 +187,21 @@ def login(page: Page, employee_id: str, password: str) -> None:
         ],
         employee_id,
     )
-    fill_first(
-        page,
-        [
-            "input[type=password]",
-            "input[name*=password i]",
-            "input[id*=password i]",
-            "input[placeholder*=비밀번호]",
-        ],
-        password,
-    )
+    password_selectors = [
+        "input[type=password]",
+        "input[name*=password i]",
+        "input[id*=password i]",
+        "input[placeholder*=비밀번호]",
+    ]
+    try:
+        fill_first(page, password_selectors, password)
+    except RuntimeError:
+        page.wait_for_timeout(1_000)
+        if not handle_security_page(page):
+            raise
+        login_heading.wait_for(state="visible", timeout=8_000)
+        fill_first(page, ["#acoEmpno", "input[type=text]"], employee_id)
+        fill_first(page, password_selectors, password)
     if not click_text(page, ["로그인"], timeout=5_000):
         page.keyboard.press("Enter")
     page.wait_for_timeout(2_000)
