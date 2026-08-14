@@ -1,12 +1,6 @@
 name: Wedding seat monitor
-# Diagnostic test run 25
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/wedding-seat-monitor.yml"
-  schedule:
     - cron: "7 * * * *"
       timezone: "Asia/Seoul"
   workflow_dispatch:
