@@ -1,5 +1,5 @@
 name: Wedding seat monitor
-# Per-key OCR diagnostic
+# Login alert diagnostic
 
 on:
   push:
