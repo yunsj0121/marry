@@ -76,9 +76,12 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
 
 
 def handle_security_page(page: Page) -> bool:
-    if not has_visible_text(page, re.compile(r"보안프로그램\s*설치여부")):
-        return False
     radios = page.locator("input[type=radio]")
+    is_security_url = "UWDDWSCO02M2.jsp" in page.url
+    if not is_security_url and radios.count() != 2 and not has_visible_text(
+        page, re.compile(r"보안프로그램\s*설치여부")
+    ):
+        return False
     selected = False
     if radios.count() >= 2:
         try:
