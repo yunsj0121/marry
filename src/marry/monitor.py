@@ -174,19 +174,16 @@ def login(page: Page, employee_id: str, password: str) -> None:
     except PlaywrightTimeoutError as exc:
         raise RuntimeError("회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다.") from exc
 
-    fill_first(
-        page,
-        [
-            "input[name*=id i]",
-            "input[id*=id i]",
-            "input[name*=emp i]",
-            "input[id*=emp i]",
-            "input[placeholder*=사원]",
-            "input[placeholder*=아이디]",
-            "input[type=text]",
-        ],
-        employee_id,
-    )
+    id_selectors = [
+        "#acoEmpno",
+        "input[name*=id i]",
+        "input[id*=id i]",
+        "input[name*=emp i]",
+        "input[id*=emp i]",
+        "input[placeholder*=사원]",
+        "input[placeholder*=아이디]",
+        "input[type=text]",
+    ]
     password_selectors = [
         "input[type=password]",
         "input[name*=password i]",
@@ -194,13 +191,14 @@ def login(page: Page, employee_id: str, password: str) -> None:
         "input[placeholder*=비밀번호]",
     ]
     try:
+        fill_first(page, id_selectors, employee_id)
         fill_first(page, password_selectors, password)
     except RuntimeError:
         page.wait_for_timeout(1_000)
         if not handle_security_page(page):
             raise
         login_heading.wait_for(state="visible", timeout=8_000)
-        fill_first(page, ["#acoEmpno", "input[type=text]"], employee_id)
+        fill_first(page, id_selectors, employee_id)
         fill_first(page, password_selectors, password)
     if not click_text(page, ["로그인"], timeout=5_000):
         page.keyboard.press("Enter")
