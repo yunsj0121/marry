@@ -81,12 +81,25 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
 
 def enter_password_with_keypad(page: Page, password: str) -> None:
     password_fields = page.locator("input[type=password]")
+    active_field = None
     for index in range(password_fields.count()):
         field = password_fields.nth(index)
         if field.is_visible():
             field.click(force=True, timeout=3_000)
+            active_field = field
             break
     page.wait_for_timeout(500)
+
+    if active_field is None:
+        raise RuntimeError("보이는 비밀번호 입력란을 찾지 못했습니다.")
+    page.keyboard.type(password, delay=80)
+    page.wait_for_timeout(300)
+    try:
+        if active_field.input_value():
+            page.keyboard.press("Enter")
+            return
+    except PlaywrightTimeoutError:
+        pass
 
     visible_heading = None
     for frame in page.frames:
