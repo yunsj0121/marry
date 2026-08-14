@@ -95,7 +95,13 @@ def login(page: Page, employee_id: str, password: str) -> None:
                 continue
             if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
                 continue
-            page.wait_for_timeout(3_000)
+            for _ in range(20):
+                if (
+                    page.get_by_text(re.compile(r"보안프로그램\s*설치여부")).count()
+                    or page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).count()
+                ):
+                    break
+                page.wait_for_timeout(500)
             break
         except PlaywrightTimeoutError:
             continue
