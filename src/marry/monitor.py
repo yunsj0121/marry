@@ -147,6 +147,7 @@ def enter_password_with_keypad(page: Page, password: str) -> None:
             x = crop_left + (ocr["left"][index] + ocr["width"][index] / 2) / scale
             y = crop_top + (ocr["top"][index] + ocr["height"][index] / 2) / scale
             key_positions[text.lower()] = (x, y)
+        print(f"보안키패드 OCR 인식 키: {sorted(key_positions)}")
 
         for character in password:
             key = character.lower()
