@@ -1,7 +1,7 @@
 [project]
 name = "marry"
-version = "0.1.0"
-description = "Samsung Card wedding hall application automation helper"
+version = "0.2.0"
+description = "Samsung Card wedding hall application and availability monitor"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 marry-apply = "marry.apply:main"
+marry-monitor = "marry.monitor:main"
 
 [tool.ruff]
 line-length = 100
