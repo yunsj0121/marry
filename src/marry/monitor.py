@@ -135,9 +135,13 @@ def handle_security_page(page: Page) -> bool:
             for index in range(radios.count())
         )
     )
+    cookies_before = {cookie["name"] for cookie in page.context.cookies()}
     if not click_text(page, ["확인"], timeout=5_000):
         raise RuntimeError("보안프로그램 선택 화면의 확인 버튼을 누르지 못했습니다.")
     page.wait_for_timeout(3_000)
+    cookies_after = {cookie["name"] for cookie in page.context.cookies()}
+    print(f"보안확인 후 URL: {page.url}")
+    print(f"보안확인 신규 쿠키명: {sorted(cookies_after - cookies_before)}")
     return True
 
 
