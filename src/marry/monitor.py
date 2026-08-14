@@ -87,9 +87,35 @@ def login(page: Page, employee_id: str, password: str) -> None:
         except PlaywrightTimeoutError:
             continue
 
-    if click_text(page, ["설치하지 않음", "설치하지않음"], timeout=5_000):
-        click_text(page, ["확인"], timeout=5_000)
-        page.wait_for_timeout(1_500)
+    if page.get_by_text(re.compile(r"보안프로그램\s*설치여부")).count():
+        radios = page.locator("input[type=radio]")
+        selected = False
+        if radios.count() >= 2:
+            try:
+                radios.last.check(force=True, timeout=3_000)
+                selected = True
+            except PlaywrightTimeoutError:
+                pass
+        if not selected:
+            no_install = page.get_by_text(
+                re.compile(r"^\s*설치하지\s*않음\s*$")
+            ).first
+            for target in [
+                no_install.locator("xpath=ancestor::label[1]"),
+                no_install.locator("xpath=.."),
+                no_install,
+            ]:
+                try:
+                    target.click(force=True, timeout=2_000)
+                    selected = True
+                    break
+                except PlaywrightTimeoutError:
+                    continue
+        if not selected:
+            raise RuntimeError("보안프로그램 '설치하지 않음'을 선택하지 못했습니다.")
+        if not click_text(page, ["확인"], timeout=5_000):
+            raise RuntimeError("보안프로그램 선택 화면의 확인 버튼을 누르지 못했습니다.")
+        page.wait_for_timeout(2_000)
 
     login_heading = page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).first
     try:
