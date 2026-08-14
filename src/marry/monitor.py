@@ -105,9 +105,15 @@ def login(page: Page, employee_id: str, password: str) -> None:
         selected = False
         if radios.count() >= 2:
             try:
-                radios.last.check(force=True, timeout=3_000)
+                radios.last.evaluate(
+                    """element => {
+                        element.checked = true;
+                        element.dispatchEvent(new Event('input', { bubbles: true }));
+                        element.dispatchEvent(new Event('change', { bubbles: true }));
+                    }"""
+                )
                 selected = True
-            except PlaywrightTimeoutError:
+            except Exception:  # noqa: BLE001 - fall back to clicking the card
                 pass
         if not selected:
             headings = page.get_by_text(re.compile(r"^\s*설치하지\s*않음\s*$"))
