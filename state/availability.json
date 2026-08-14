@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-14T12:56:11+00:00",
-  "detail": "RuntimeError: 회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다."
+  "checked_at": "2026-08-14T12:58:34+00:00",
+  "detail": "RuntimeError: 로그인 입력란을 찾거나 입력하지 못했습니다."
 }
