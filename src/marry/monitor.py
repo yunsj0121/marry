@@ -53,6 +53,15 @@ def click_text(page: Page, candidates: list[str], timeout: int = 4_000) -> bool:
     return False
 
 
+def has_visible_text(page: Page, pattern: re.Pattern[str]) -> bool:
+    for frame in page.frames:
+        matches = frame.get_by_text(pattern)
+        for index in range(matches.count()):
+            if matches.nth(index).is_visible():
+                return True
+    return False
+
+
 def fill_first(page: Page, selectors: list[str], value: str) -> None:
     for frame in page.frames:
         for selector in selectors:
@@ -97,8 +106,8 @@ def login(page: Page, employee_id: str, password: str) -> None:
                 continue
             for _ in range(20):
                 if (
-                    page.get_by_text(re.compile(r"보안프로그램\s*설치여부")).count()
-                    or page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).count()
+                    has_visible_text(page, re.compile(r"보안프로그램\s*설치여부"))
+                    or has_visible_text(page, re.compile(r"사원번호.*아이디.*로그인"))
                 ):
                     break
                 page.wait_for_timeout(500)
@@ -106,7 +115,7 @@ def login(page: Page, employee_id: str, password: str) -> None:
         except PlaywrightTimeoutError:
             continue
 
-    if page.get_by_text(re.compile(r"보안프로그램\s*설치여부")).count():
+    if has_visible_text(page, re.compile(r"보안프로그램\s*설치여부")):
         (ARTIFACT_DIR / "security-page.html").write_text(
             page.content(), encoding="utf-8"
         )
