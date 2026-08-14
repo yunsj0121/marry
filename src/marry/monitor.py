@@ -214,6 +214,45 @@ def enter_password_with_keypad(page: Page, password: str) -> None:
                         crop_left + (left + right) / 2,
                         crop_top + (top + bottom) / 2,
                     )
+
+            rows: list[list[tuple[int, int, int, int]]] = []
+            for component in sorted(components, key=lambda item: (item[1] + item[3]) / 2):
+                center_y = (component[1] + component[3]) / 2
+                for row in rows:
+                    row_center = sum((item[1] + item[3]) / 2 for item in row) / len(row)
+                    if abs(center_y - row_center) <= 8:
+                        row.append(component)
+                        break
+                else:
+                    rows.append([component])
+            key_rows = [
+                sorted(row, key=lambda item: item[0])
+                for row in rows
+                if len(row) >= 7
+            ]
+            key_rows.sort(key=lambda row: sum(item[1] for item in row) / len(row))
+            layouts = ["1234567890", "qwertyuiop", "asdfghjkl"]
+            for row, layout in zip(key_rows[:3], layouts):
+                if len(row) != len(layout):
+                    continue
+                for component, character in zip(row, layout):
+                    left, top, right, bottom = component
+                    key_positions[character] = (
+                        crop_left + (left + right) / 2,
+                        crop_top + (top + bottom) / 2,
+                    )
+            if len(key_rows) >= 4:
+                bottom_row = key_rows[3]
+                letter_components = (
+                    bottom_row[1:-1] if len(bottom_row) >= 9 else bottom_row
+                )
+                if len(letter_components) == 7:
+                    for component, character in zip(letter_components, "zxcvbnm"):
+                        left, top, right, bottom = component
+                        key_positions[character] = (
+                            crop_left + (left + right) / 2,
+                            crop_top + (top + bottom) / 2,
+                        )
         print(f"보안키패드 OCR 인식 키: {sorted(key_positions)}")
 
         for character in password:
