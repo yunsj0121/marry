@@ -65,13 +65,17 @@ def has_visible_text(page: Page, pattern: re.Pattern[str]) -> bool:
 def fill_first(page: Page, selectors: list[str], value: str) -> None:
     for frame in page.frames:
         for selector in selectors:
-            field = frame.locator(selector).first
-            try:
-                field.fill(value, timeout=2_000)
-                if field.input_value() == value:
-                    return
-            except (PlaywrightTimeoutError, AssertionError):
-                pass
+            fields = frame.locator(selector)
+            for index in range(fields.count()):
+                field = fields.nth(index)
+                try:
+                    if not field.is_visible():
+                        continue
+                    field.fill(value, timeout=2_000)
+                    if field.input_value() == value:
+                        return
+                except (PlaywrightTimeoutError, AssertionError):
+                    pass
     raise RuntimeError("로그인 입력란을 찾거나 입력하지 못했습니다.")
 
 
