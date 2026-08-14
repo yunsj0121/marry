@@ -41,13 +41,15 @@ def required_env(name: str) -> str:
 def click_text(page: Page, candidates: list[str], timeout: int = 4_000) -> bool:
     for frame in page.frames:
         for text in candidates:
-            try:
-                frame.get_by_text(re.compile(rf"^\s*{re.escape(text)}\s*$")).first.click(
-                    timeout=timeout
-                )
-                return True
-            except PlaywrightTimeoutError:
-                pass
+            matches = frame.get_by_text(re.compile(rf"^\s*{re.escape(text)}\s*$"))
+            for index in range(matches.count()):
+                target = matches.nth(index)
+                try:
+                    if target.is_visible():
+                        target.click(timeout=timeout)
+                        return True
+                except PlaywrightTimeoutError:
+                    pass
     return False
 
 
@@ -97,20 +99,26 @@ def login(page: Page, employee_id: str, password: str) -> None:
             except PlaywrightTimeoutError:
                 pass
         if not selected:
-            no_install = page.get_by_text(
-                re.compile(r"^\s*설치하지\s*않음\s*$")
-            ).first
-            for target in [
-                no_install.locator("xpath=ancestor::label[1]"),
-                no_install.locator("xpath=.."),
-                no_install,
-            ]:
-                try:
-                    target.click(force=True, timeout=2_000)
-                    selected = True
-                    break
-                except PlaywrightTimeoutError:
+            headings = page.get_by_text(re.compile(r"^\s*설치하지\s*않음\s*$"))
+            for index in range(headings.count()):
+                no_install = headings.nth(index)
+                if not no_install.is_visible():
                     continue
+                # Desktop renders the choice as a large card. Clicking one of
+                # its ancestors is needed because the heading itself has no handler.
+                for levels_up in [3, 2, 1, 0]:
+                    target = no_install if levels_up == 0 else no_install.locator(
+                        "xpath=" + "/.." * levels_up
+                    )
+                    try:
+                        target.click(force=True, timeout=2_000)
+                        page.wait_for_timeout(250)
+                        selected = True
+                        break
+                    except PlaywrightTimeoutError:
+                        continue
+                if selected:
+                    break
         if not selected:
             raise RuntimeError("보안프로그램 '설치하지 않음'을 선택하지 못했습니다.")
         if not click_text(page, ["확인"], timeout=5_000):
