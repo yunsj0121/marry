@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-14T15:22:58+00:00",
-  "detail": "RuntimeError: 보안키패드 OCR에서 필요한 문자를 찾지 못했습니다."
+  "checked_at": "2026-08-14T15:26:24+00:00",
+  "detail": "RuntimeError: 웨딩홀 선택 영역에서 서초사옥을 찾지 못했습니다."
 }
