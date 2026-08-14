@@ -88,11 +88,14 @@ def enter_password_with_keypad(page: Page, password: str) -> None:
             break
     page.wait_for_timeout(500)
 
-    keypad_heading = page.get_by_text("보안키패드", exact=True)
     visible_heading = None
-    for index in range(keypad_heading.count()):
-        if keypad_heading.nth(index).is_visible():
-            visible_heading = keypad_heading.nth(index)
+    for frame in page.frames:
+        keypad_heading = frame.get_by_text("보안키패드", exact=True)
+        for index in range(keypad_heading.count()):
+            if keypad_heading.nth(index).is_visible():
+                visible_heading = keypad_heading.nth(index)
+                break
+        if visible_heading is not None:
             break
     if visible_heading is None:
         raise RuntimeError("보안키패드를 열지 못했습니다.")
