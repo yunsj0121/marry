@@ -78,6 +78,9 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
 def handle_security_page(page: Page) -> bool:
     if not has_visible_text(page, re.compile(r"보안프로그램\s*설치여부")):
         return False
+    (ARTIFACT_DIR / "security-page.html").write_text(
+        page.content(), encoding="utf-8"
+    )
     radios = page.locator("input[type=radio]")
     selected = False
     if radios.count() >= 2:
