@@ -581,7 +581,36 @@ def month_text(page: Page) -> str:
     return match.inner_text(timeout=5_000)
 
 
+def close_calendar_notice(page: Page) -> None:
+    notice = page.get_by_text("안내", exact=True)
+    for index in range(notice.count()):
+        heading = notice.nth(index)
+        if not heading.is_visible():
+            continue
+        dialog = heading.locator("xpath=ancestor::*[contains(@class, 'pop') or contains(@class, 'modal')][1]")
+        if not dialog.count():
+            dialog = heading.locator("xpath=../..")
+        close_candidates = dialog.locator(
+            "button, a, [role=button], [class*=close i], [title*=닫기], [aria-label*=닫기]"
+        )
+        for close_index in range(close_candidates.count() - 1, -1, -1):
+            target = close_candidates.nth(close_index)
+            try:
+                if target.is_visible():
+                    target.click(force=True, timeout=1_500)
+                    page.wait_for_timeout(300)
+                    return
+            except PlaywrightTimeoutError:
+                continue
+        box = dialog.bounding_box()
+        if box:
+            page.mouse.click(box["x"] + box["width"] - 32, box["y"] + 32)
+            page.wait_for_timeout(300)
+            return
+
+
 def go_to_target_month(page: Page) -> None:
+    close_calendar_notice(page)
     for _ in range(24):
         current = month_text(page)
         found = re.search(r"(\d{4})년\s*(\d{1,2})월", current)
@@ -617,6 +646,18 @@ def go_to_target_month(page: Page) -> None:
                     break
                 except PlaywrightTimeoutError:
                     continue
+        if not clicked:
+            label_box = month_label.bounding_box()
+            if label_box:
+                page.mouse.click(
+                    label_box["x"] + label_box["width"] + 28,
+                    label_box["y"] + label_box["height"] / 2,
+                )
+                page.wait_for_timeout(400)
+                try:
+                    clicked = month_text(page) != current
+                except PlaywrightTimeoutError:
+                    clicked = False
         if not clicked:
             raise RuntimeError("달력의 다음 달 버튼을 찾지 못했습니다.")
         page.wait_for_timeout(400)
