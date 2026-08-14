@@ -537,7 +537,27 @@ def select_hall(page: Page) -> None:
     page.goto(APPLICATION_URL, wait_until="domcontentloaded", timeout=30_000)
     if "login" in page.url.lower():
         raise RuntimeError("예약 화면으로 이동하는 동안 로그인 세션이 종료되었습니다.")
-    if click_text(page, ["신청"], timeout=5_000):
+    opened_application = click_text(page, ["신청"], timeout=5_000)
+    if not opened_application:
+        action_elements = page.locator(
+            "button, a, input[type=button], input[type=submit]"
+        )
+        for index in range(action_elements.count()):
+            action = action_elements.nth(index)
+            if not action.is_visible():
+                continue
+            box = action.bounding_box()
+            if not box:
+                continue
+            if (
+                100 <= box["y"] <= 320
+                and 70 <= box["width"] <= 260
+                and 25 <= box["height"] <= 100
+            ):
+                action.click(force=True, timeout=3_000)
+                opened_application = True
+                break
+    if opened_application:
         try:
             page.wait_for_load_state("domcontentloaded", timeout=15_000)
         except PlaywrightTimeoutError:
