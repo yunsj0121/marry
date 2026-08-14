@@ -95,7 +95,7 @@ def login(page: Page, employee_id: str, password: str) -> None:
                 continue
             if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
                 continue
-            page.wait_for_timeout(1_500)
+            page.wait_for_timeout(3_000)
             break
         except PlaywrightTimeoutError:
             continue
