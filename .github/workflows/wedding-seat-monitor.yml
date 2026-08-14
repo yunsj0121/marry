@@ -1,6 +1,11 @@
 name: Wedding seat monitor
+# Security metadata diagnostic
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/wedding-seat-monitor.yml"
   schedule:
     - cron: "7 * * * *"
       timezone: "Asia/Seoul"
