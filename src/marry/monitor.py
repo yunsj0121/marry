@@ -83,6 +83,18 @@ def handle_security_page(page: Page) -> bool:
     ):
         return False
     selected = False
+    for index in range(radios.count()):
+        radio = radios.nth(index)
+        radio_id = radio.get_attribute("id") or ""
+        label = page.locator(f'label[for="{radio_id}"]') if radio_id else None
+        label_text = ""
+        if label is not None and label.count():
+            label_text = re.sub(r"\s+", " ", label.first.inner_text()).strip()
+        print(
+            "보안선택 라디오: "
+            f"index={index}, id={radio_id}, name={radio.get_attribute('name') or ''}, "
+            f"value={radio.get_attribute('value') or ''}, label={label_text}"
+        )
     if radios.count() >= 2:
         try:
             radio_id = radios.last.get_attribute("id")
@@ -116,6 +128,13 @@ def handle_security_page(page: Page) -> bool:
                 break
     if not selected:
         raise RuntimeError("보안프로그램 '설치하지 않음'을 선택하지 못했습니다.")
+    print(
+        "보안선택 결과: "
+        + ", ".join(
+            f"{index}={radios.nth(index).is_checked()}"
+            for index in range(radios.count())
+        )
+    )
     if not click_text(page, ["확인"], timeout=5_000):
         raise RuntimeError("보안프로그램 선택 화면의 확인 버튼을 누르지 못했습니다.")
     page.wait_for_timeout(3_000)
