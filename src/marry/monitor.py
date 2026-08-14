@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import re
 import sys
@@ -10,6 +11,8 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import pytesseract
+from PIL import Image, ImageEnhance, ImageOps
 from playwright.sync_api import Locator, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 LOGIN_URL = "https://s-wedding.samsungcard.com/login/UWDDWSCO02M1.jsp"
@@ -111,7 +114,52 @@ def enter_password_with_keypad(page: Page, password: str) -> None:
         if visible_heading is not None:
             break
     if visible_heading is None:
-        raise RuntimeError("보안키패드를 열지 못했습니다.")
+        if not password.isalnum():
+            raise RuntimeError("보안키패드 특수문자 OCR 입력은 아직 지원하지 않습니다.")
+        screenshot = Image.open(io.BytesIO(page.screenshot(full_page=False))).convert("RGB")
+        width, height = screenshot.size
+        crop_left = int(width * 0.27)
+        crop_top = int(height * 0.52)
+        crop_right = int(width * 0.74)
+        crop_bottom = int(height * 0.96)
+        keypad_image = screenshot.crop(
+            (crop_left, crop_top, crop_right, crop_bottom)
+        )
+        scale = 4
+        processed = keypad_image.resize(
+            (keypad_image.width * scale, keypad_image.height * scale)
+        )
+        processed = ImageOps.grayscale(processed)
+        processed = ImageEnhance.Contrast(processed).enhance(2.0)
+        ocr = pytesseract.image_to_data(
+            processed,
+            config=(
+                "--psm 11 "
+                "-c tessedit_char_whitelist=0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            ),
+            output_type=pytesseract.Output.DICT,
+        )
+        key_positions: dict[str, tuple[float, float]] = {}
+        for index, raw_text in enumerate(ocr["text"]):
+            text = raw_text.strip()
+            if len(text) != 1 or not text.isalnum():
+                continue
+            x = crop_left + (ocr["left"][index] + ocr["width"][index] / 2) / scale
+            y = crop_top + (ocr["top"][index] + ocr["height"][index] / 2) / scale
+            key_positions[text.lower()] = (x, y)
+
+        for character in password:
+            key = character.lower()
+            if key not in key_positions:
+                raise RuntimeError("보안키패드 OCR에서 필요한 문자를 찾지 못했습니다.")
+            if character.isupper():
+                page.mouse.click(crop_left + 55, crop_top + 190)
+                page.wait_for_timeout(100)
+            page.mouse.click(*key_positions[key])
+            page.wait_for_timeout(80)
+        page.mouse.click(crop_left + 505, crop_top + 220)
+        page.wait_for_timeout(300)
+        return
 
     keypad = visible_heading.locator("xpath=..")
     for levels_up in range(1, 6):
