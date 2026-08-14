@@ -85,13 +85,13 @@ def handle_security_page(page: Page) -> bool:
     selected = False
     if radios.count() >= 2:
         try:
-            radios.last.evaluate(
-                """element => {
-                    element.checked = true;
-                    element.dispatchEvent(new Event('input', { bubbles: true }));
-                    element.dispatchEvent(new Event('change', { bubbles: true }));
-                }"""
-            )
+            radio_id = radios.last.get_attribute("id")
+            if radio_id and page.locator(f'label[for="{radio_id}"]').count():
+                page.locator(f'label[for="{radio_id}"]').first.click(
+                    force=True, timeout=3_000
+                )
+            else:
+                radios.last.evaluate("element => element.click()")
             selected = True
         except Exception:  # noqa: BLE001 - fall back to clicking the card
             pass
