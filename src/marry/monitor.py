@@ -84,7 +84,13 @@ def login(page: Page, employee_id: str, password: str) -> None:
             company_name.first.wait_for(state="visible", timeout=8_000)
             company_radios = page.locator("input[type=radio]")
             if company_radios.count():
-                company_radios.first.check(force=True, timeout=3_000)
+                company_radios.first.evaluate(
+                    """element => {
+                        element.checked = true;
+                        element.dispatchEvent(new Event('input', { bubbles: true }));
+                        element.dispatchEvent(new Event('change', { bubbles: true }));
+                    }"""
+                )
             elif not click_text(page, ["삼성화재"], timeout=3_000):
                 continue
             if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
