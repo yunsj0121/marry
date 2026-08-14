@@ -1,6 +1,7 @@
 name: Wedding seat monitor
 
 on:
+  schedule:
     - cron: "7 * * * *"
       timezone: "Asia/Seoul"
   workflow_dispatch:
