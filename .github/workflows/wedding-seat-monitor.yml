@@ -1,5 +1,5 @@
 name: Wedding seat monitor
-# Keypad frame diagnostic
+# Secure keyboard-event diagnostic
 
 on:
   push:
