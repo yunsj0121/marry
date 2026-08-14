@@ -210,6 +210,16 @@ def login(page: Page, employee_id: str, password: str) -> None:
     except PlaywrightTimeoutError:
         pass
     page.wait_for_timeout(5_000)
+    if handle_security_page(page):
+        login_heading.wait_for(state="visible", timeout=10_000)
+        fill_first(page, id_selectors, employee_id)
+        fill_first(page, password_selectors, password)
+        page.locator("#loginButn").click(timeout=5_000)
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=15_000)
+        except PlaywrightTimeoutError:
+            pass
+        page.wait_for_timeout(5_000)
     if "login" in page.url.lower() or has_visible_text(
         page, re.compile(r"사원번호.*아이디.*로그인")
     ):
