@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-14T13:49:08+00:00",
-  "detail": "RuntimeError: 자동 로그인에 실패했습니다. 보안키패드 또는 추가 인증을 확인하세요."
+  "checked_at": "2026-08-14T13:52:26+00:00",
+  "detail": "RuntimeError: 로그인 입력란을 찾거나 입력하지 못했습니다."
 }
