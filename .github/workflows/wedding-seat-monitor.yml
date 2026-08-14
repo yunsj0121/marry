@@ -1,0 +1,58 @@
+name: Wedding seat monitor
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+      timezone: "Asia/Seoul"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wedding-seat-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SAMSUNG_WEDDING_EMPLOYEE_ID: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_ID }}
+      SAMSUNG_WEDDING_EMPLOYEE_PASSWORD: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_PASSWORD }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: pip install -e . pytest
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Run tests
+        run: pytest -q
+      - name: Check availability
+        run: marry-monitor
+      - name: Upload diagnostic screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wedding-monitor-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Save monitor state
+        if: always()
+        run: |
+          if git diff --quiet -- state/availability.json; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/availability.json
+          git commit -m "Update wedding monitor state"
+          git push
