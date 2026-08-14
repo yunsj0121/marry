@@ -135,13 +135,28 @@ def handle_security_page(page: Page) -> bool:
             for index in range(radios.count())
         )
     )
-    cookies_before = {cookie["name"] for cookie in page.context.cookies()}
+    cookies_before = {
+        cookie["name"]: cookie["value"] for cookie in page.context.cookies()
+    }
+    local_before = set(page.evaluate("Object.keys(localStorage)"))
+    session_before = set(page.evaluate("Object.keys(sessionStorage)"))
     if not click_text(page, ["확인"], timeout=5_000):
         raise RuntimeError("보안프로그램 선택 화면의 확인 버튼을 누르지 못했습니다.")
     page.wait_for_timeout(3_000)
-    cookies_after = {cookie["name"] for cookie in page.context.cookies()}
+    cookies_after = {
+        cookie["name"]: cookie["value"] for cookie in page.context.cookies()
+    }
+    local_after = set(page.evaluate("Object.keys(localStorage)"))
+    session_after = set(page.evaluate("Object.keys(sessionStorage)"))
+    changed_cookies = sorted(
+        name
+        for name in cookies_before.keys() | cookies_after.keys()
+        if cookies_before.get(name) != cookies_after.get(name)
+    )
     print(f"보안확인 후 URL: {page.url}")
-    print(f"보안확인 신규 쿠키명: {sorted(cookies_after - cookies_before)}")
+    print(f"보안확인 변경 쿠키명: {changed_cookies}")
+    print(f"보안확인 신규 localStorage 키: {sorted(local_after - local_before)}")
+    print(f"보안확인 신규 sessionStorage 키: {sorted(session_after - session_before)}")
     return True
 
 
@@ -239,8 +254,15 @@ def login(page: Page, employee_id: str, password: str) -> None:
     )
     if handle_security_page(page):
         page.locator("#acoEmpno").wait_for(state="visible", timeout=15_000)
-        fill_first(page, id_selectors, employee_id)
-        fill_first(page, password_selectors, password)
+        print(f"보안확인 후 로그인 재입력 시작: {page.url}")
+        try:
+            fill_first(page, id_selectors, employee_id)
+            print("보안확인 후 사원번호 입력 성공")
+            fill_first(page, password_selectors, password)
+            print("보안확인 후 비밀번호 입력 성공")
+        except RuntimeError:
+            print(f"보안확인 후 재입력 실패 URL: {page.url}")
+            raise
         page.locator("#loginButn").click(timeout=5_000)
         try:
             page.wait_for_load_state("domcontentloaded", timeout=15_000)
