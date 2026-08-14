@@ -1,5 +1,5 @@
 name: Wedding seat monitor
-# Visible credential diagnostic
+# Virtual keypad diagnostic
 
 on:
   push:
