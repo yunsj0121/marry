@@ -38,6 +38,11 @@ jobs:
         run: command -v tesseract || (sudo apt-get update && sudo apt-get install -y tesseract-ocr)
       - name: Install project
         run: pip install -e . pytest
+      - name: Check Telegram bot identity
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python -c "import json, os, urllib.request; token = os.environ['TELEGRAM_BOT_TOKEN']; print('getMe:', json.load(urllib.request.urlopen(f'https://api.telegram.org/bot{token}/getMe')))"
+          python -c "import json, os, urllib.request; token = os.environ['TELEGRAM_BOT_TOKEN']; chat_id = os.environ['TELEGRAM_CHAT_ID']; print('getChat:', json.load(urllib.request.urlopen(f'https://api.telegram.org/bot{token}/getChat?chat_id={chat_id}')))" || echo "getChat failed (see error above)"
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: Run tests
