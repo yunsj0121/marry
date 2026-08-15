@@ -765,8 +765,8 @@ def read_target_status(page: Page, target: Target) -> tuple[str, str]:
 
 
 def send_telegram(message: str) -> None:
-    token = required_env("TELEGRAM_BOT_TOKEN")
-    chat_id = required_env("TELEGRAM_CHAT_ID")
+    token = re.sub(r"\s+", "", required_env("TELEGRAM_BOT_TOKEN"))
+    chat_id = re.sub(r"\s+", "", required_env("TELEGRAM_CHAT_ID"))
     data = urlencode({"chat_id": chat_id, "text": message, "disable_web_page_preview": "true"}).encode()
     request = Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data, method="POST")
     with urlopen(request, timeout=20) as response:
