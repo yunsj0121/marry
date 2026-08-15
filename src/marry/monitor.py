@@ -574,7 +574,9 @@ def select_hall(page: Page) -> None:
 
     print(
         "웨딩홀 선택 진입 상태: "
-        f"URL={page.url}, 신청버튼열림={opened_application}, 프레임수={len(page.frames)}"
+        f"URL={page.url}, 신청버튼열림={opened_application}, 프레임수={len(page.frames)}, "
+        f"컨텍스트페이지수={len(page.context.pages)}, "
+        f"컨텍스트URL목록={[p.url for p in page.context.pages]}"
     )
     if has_visible_text(page, re.compile(rf"^\s*{re.escape(TARGET_HALL)}\s*$")):
         return
