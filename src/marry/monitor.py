@@ -563,16 +563,31 @@ def select_hall(page: Page) -> None:
         except PlaywrightTimeoutError:
             pass
         page.wait_for_timeout(2_000)
-    if page.get_by_text(TARGET_HALL, exact=True).count():
+    print(
+        "웨딩홀 선택 진입 상태: "
+        f"URL={page.url}, 신청버튼열림={opened_application}, 프레임수={len(page.frames)}"
+    )
+    if has_visible_text(page, re.compile(rf"^\s*{re.escape(TARGET_HALL)}\s*$")):
         return
     selectors = ["select", "[role=combobox]", "button", ".select", ".dropdown"]
-    for selector in selectors:
+    for frame in page.frames:
+        for selector in selectors:
+            try:
+                frame.locator(selector).filter(
+                    has_text=re.compile("웨딩홀|사옥|선택")
+                ).first.click(timeout=2_000)
+                if click_text(page, [TARGET_HALL], timeout=3_000):
+                    return
+            except PlaywrightTimeoutError:
+                continue
+    frame_previews = []
+    for frame in page.frames:
         try:
-            page.locator(selector).filter(has_text=re.compile("웨딩홀|사옥|선택")).first.click(timeout=2_000)
-            if click_text(page, [TARGET_HALL], timeout=3_000):
-                return
+            body_text = re.sub(r"\s+", " ", frame.locator("body").inner_text(timeout=1_000)).strip()
         except PlaywrightTimeoutError:
-            continue
+            body_text = "<시간초과>"
+        frame_previews.append(f"{frame.url}: {body_text[:200]}")
+    print("웨딩홀 미발견 진단 - 프레임별 본문 일부:\n" + "\n".join(frame_previews))
     raise RuntimeError("웨딩홀 선택 영역에서 서초사옥을 찾지 못했습니다.")
 
 
