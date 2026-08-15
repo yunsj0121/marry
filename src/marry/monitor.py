@@ -569,6 +569,26 @@ def select_hall(page: Page) -> None:
     )
     if has_visible_text(page, re.compile(rf"^\s*{re.escape(TARGET_HALL)}\s*$")):
         return
+
+    if has_visible_text(page, re.compile(r"이용\s*안내|신청이란")):
+        checkboxes = page.locator("input[type=checkbox]")
+        for index in range(checkboxes.count()):
+            checkbox = checkboxes.nth(index)
+            try:
+                if checkbox.is_visible() and not checkbox.is_checked():
+                    checkbox.check(force=True, timeout=1_500)
+            except PlaywrightTimeoutError:
+                continue
+        if click_text(page, ["확인", "다음", "신청하기", "동의"], timeout=3_000):
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            except PlaywrightTimeoutError:
+                pass
+            page.wait_for_timeout(1_500)
+            print(f"이용안내 통과 후 URL: {page.url}")
+        if has_visible_text(page, re.compile(rf"^\s*{re.escape(TARGET_HALL)}\s*$")):
+            return
+
     selectors = ["select", "[role=combobox]", "button", ".select", ".dropdown"]
     for frame in page.frames:
         for selector in selectors:
@@ -586,7 +606,21 @@ def select_hall(page: Page) -> None:
             body_text = re.sub(r"\s+", " ", frame.locator("body").inner_text(timeout=1_000)).strip()
         except PlaywrightTimeoutError:
             body_text = "<시간초과>"
-        frame_previews.append(f"{frame.url}: {body_text[:200]}")
+        frame_previews.append(f"{frame.url}: {body_text[:800]}")
+        clickable = page.locator("button, a, [role=button]") if frame == page.main_frame else frame.locator(
+            "button, a, [role=button]"
+        )
+        labels = []
+        for index in range(min(clickable.count(), 60)):
+            element = clickable.nth(index)
+            try:
+                if element.is_visible():
+                    text = re.sub(r"\s+", " ", element.inner_text(timeout=300)).strip()
+                    if text:
+                        labels.append(text)
+            except PlaywrightTimeoutError:
+                continue
+        frame_previews.append(f"{frame.url} 클릭가능요소: {labels}")
     print("웨딩홀 미발견 진단 - 프레임별 본문 일부:\n" + "\n".join(frame_previews))
     raise RuntimeError("웨딩홀 선택 영역에서 서초사옥을 찾지 못했습니다.")
 
