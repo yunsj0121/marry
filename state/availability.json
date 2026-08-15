@@ -1,5 +1,23 @@
 {
-  "status": "unavailable",
-  "checked_at": "2026-08-15T07:38:49+00:00",
-  "detail": "17:00선택불가 17:00 예약마감"
+  "run_status": "ok",
+  "checked_at": "2026-08-15T08:32:42+00:00",
+  "targets": {
+    "2027-08-28 17:00": {
+      "status": "unavailable",
+      "detail": "17:00선택불가 17:00 예약마감"
+    },
+    "2027-09-04 11:00": {
+      "status": "unavailable",
+      "detail": "11:00선택불가 11:00 예약마감"
+    },
+    "2027-09-04 13:00": {
+      "status": "unavailable",
+      "detail": "13:00선택불가 13:00 예약마감"
+    },
+    "2027-09-04 17:00": {
+      "status": "unavailable",
+      "detail": "17:00선택불가 17:00 예약마감"
+    }
+  },
+  "error": ""
 }
