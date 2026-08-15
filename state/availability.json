@@ -1,6 +1,6 @@
 {
-  "run_status": "error",
-  "checked_at": "2026-08-15T12:23:33+00:00",
+  "run_status": "ok",
+  "checked_at": "2026-08-15T12:26:14+00:00",
   "targets": {
     "2027-08-28 17:00": {
       "status": "unavailable",
@@ -19,5 +19,5 @@
       "detail": "17:00선택불가 17:00 예약마감"
     }
   },
-  "error": "RuntimeError: 로그인 입력란을 찾거나 입력하지 못했습니다."
+  "error": ""
 }
