@@ -16,7 +16,7 @@ from PIL import Image, ImageEnhance, ImageOps
 from playwright.sync_api import Locator, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 LOGIN_URL = "https://s-wedding.samsungcard.com/login/UWDDWSCO02M1.jsp"
-APPLICATION_URL = "https://s-wedding.samsungcard.com/internal/add-apply/UWDDWSWH04M1.jsp"
+APPLICATION_URL = "https://s-wedding.samsungcard.com/internal/add-apply/UWDDWSWH04M0.jsp"
 TARGET_HALL = "서초사옥"
 TARGET_YEAR = 2027
 TARGET_MONTH = 8
@@ -559,15 +559,14 @@ def select_hall(page: Page) -> None:
                 break
     if opened_application:
         try:
+            page.wait_for_url(re.compile(r"UWDDWSWH04M1"), timeout=10_000)
+        except PlaywrightTimeoutError:
+            pass
+        try:
             page.wait_for_load_state("domcontentloaded", timeout=15_000)
         except PlaywrightTimeoutError:
             pass
-        for _ in range(10):
-            if has_visible_text(page, re.compile(r"^\s*안내\s*$")) or has_visible_text(
-                page, re.compile(r"웨딩홀\s*선택")
-            ):
-                break
-            page.wait_for_timeout(500)
+        page.wait_for_timeout(1_000)
 
     close_calendar_notice(page)
     page.wait_for_timeout(500)
