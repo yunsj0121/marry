@@ -718,9 +718,27 @@ def closest_status_container(time_locator: Locator) -> Locator:
 
 def read_target_status(page: Page) -> tuple[str, str]:
     go_to_target_month(page)
+    print(f"목표 월 도달: {month_text(page)}")
+
     day = page.get_by_text(str(TARGET_DAY), exact=True)
     visible_days = [day.nth(i) for i in range(day.count()) if day.nth(i).is_visible()]
+    for _ in range(10):
+        if visible_days:
+            break
+        page.wait_for_timeout(500)
+        day = page.get_by_text(str(TARGET_DAY), exact=True)
+        visible_days = [day.nth(i) for i in range(day.count()) if day.nth(i).is_visible()]
+
     if not visible_days:
+        details = []
+        for index in range(day.count()):
+            candidate = day.nth(index)
+            try:
+                box = candidate.bounding_box()
+            except PlaywrightTimeoutError:
+                box = None
+            details.append(f"visible={candidate.is_visible()} box={box}")
+        print(f"'{TARGET_DAY}' 텍스트 매치 {day.count()}개: {details}")
         raise RuntimeError("달력에서 28일을 찾지 못했습니다.")
     visible_days[0].click()
     page.wait_for_timeout(500)
