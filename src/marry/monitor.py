@@ -5,7 +5,7 @@ import io
 import os
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
@@ -18,19 +18,36 @@ from playwright.sync_api import Locator, Page, TimeoutError as PlaywrightTimeout
 LOGIN_URL = "https://s-wedding.samsungcard.com/login/UWDDWSCO02M1.jsp"
 APPLICATION_URL = "https://s-wedding.samsungcard.com/internal/add-apply/UWDDWSWH04M0.jsp"
 TARGET_HALL = "서초사옥"
-TARGET_YEAR = 2027
-TARGET_MONTH = 8
-TARGET_DAY = 28
-TARGET_TIME = "17:00"
 STATE_PATH = Path("state/availability.json")
 ARTIFACT_DIR = Path("artifacts")
 
 
+@dataclass(frozen=True)
+class Target:
+    year: int
+    month: int
+    day: int
+    time: str
+
+    @property
+    def key(self) -> str:
+        return f"{self.year:04d}-{self.month:02d}-{self.day:02d} {self.time}"
+
+
+TARGETS: list[Target] = [
+    Target(2027, 8, 28, "17:00"),
+    Target(2027, 9, 4, "11:00"),
+    Target(2027, 9, 4, "13:00"),
+    Target(2027, 9, 4, "17:00"),
+]
+
+
 @dataclass
 class MonitorState:
-    status: str
+    run_status: str
     checked_at: str
-    detail: str = ""
+    targets: dict[str, dict[str, str]] = field(default_factory=dict)
+    error: str = ""
 
 
 def required_env(name: str) -> str:
@@ -649,7 +666,7 @@ def close_calendar_notice(page: Page) -> None:
             return
 
 
-def go_to_target_month(page: Page) -> None:
+def go_to_target_month(page: Page, target_year: int, target_month: int) -> None:
     close_calendar_notice(page)
     for _ in range(24):
         current = month_text(page)
@@ -657,9 +674,9 @@ def go_to_target_month(page: Page) -> None:
         if not found:
             raise RuntimeError("달력의 연월을 읽지 못했습니다.")
         year, month = map(int, found.groups())
-        if (year, month) == (TARGET_YEAR, TARGET_MONTH):
+        if (year, month) == (target_year, target_month):
             return
-        if (year, month) > (TARGET_YEAR, TARGET_MONTH):
+        if (year, month) > (target_year, target_month):
             raise RuntimeError("달력이 목표 월보다 뒤에 있어 자동 이동하지 않았습니다.")
 
         month_label = page.get_by_text(re.compile(rf"{year}년\s*{month}월")).first
@@ -716,11 +733,11 @@ def closest_status_container(time_locator: Locator) -> Locator:
     return time_locator.locator("xpath=..")
 
 
-def read_target_status(page: Page) -> tuple[str, str]:
-    go_to_target_month(page)
+def read_target_status(page: Page, target: Target) -> tuple[str, str]:
+    go_to_target_month(page, target.year, target.month)
     print(f"목표 월 도달: {month_text(page)}")
 
-    target_date = f"{TARGET_YEAR:04d}{TARGET_MONTH:02d}{TARGET_DAY:02d}"
+    target_date = f"{target.year:04d}{target.month:02d}{target.day:02d}"
     day_button = page.locator(f'button[data-date="{target_date}"]')
     for _ in range(10):
         if day_button.count() and day_button.first.is_visible():
@@ -728,15 +745,15 @@ def read_target_status(page: Page) -> tuple[str, str]:
         page.wait_for_timeout(500)
 
     if not day_button.count():
-        raise RuntimeError("달력에서 28일을 찾지 못했습니다.")
+        raise RuntimeError(f"달력에서 {target.day}일을 찾지 못했습니다.")
     print(
-        f"{TARGET_DAY}일 버튼 상태: class={day_button.first.get_attribute('class')}, "
+        f"{target.key} 버튼 상태: class={day_button.first.get_attribute('class')}, "
         f"visible={day_button.first.is_visible()}"
     )
     day_button.first.click()
     page.wait_for_timeout(500)
 
-    time_locator = page.get_by_text(TARGET_TIME, exact=True).first
+    time_locator = page.get_by_text(target.time, exact=True).first
     time_locator.wait_for(state="visible", timeout=5_000)
     container = closest_status_container(time_locator)
     detail = re.sub(r"\s+", " ", container.inner_text()).strip()
@@ -759,9 +776,15 @@ def send_telegram(message: str) -> None:
 
 def load_previous_state() -> MonitorState:
     try:
-        return MonitorState(**json.loads(STATE_PATH.read_text(encoding="utf-8")))
-    except (FileNotFoundError, TypeError, ValueError, json.JSONDecodeError):
-        return MonitorState(status="unknown", checked_at="")
+        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        return MonitorState(
+            run_status=data.get("run_status", "unknown"),
+            checked_at=data.get("checked_at", ""),
+            targets=data.get("targets", {}),
+            error=data.get("error", ""),
+        )
+    except (FileNotFoundError, TypeError, ValueError, json.JSONDecodeError, AttributeError):
+        return MonitorState(run_status="unknown", checked_at="")
 
 
 def save_state(state: MonitorState) -> None:
@@ -783,7 +806,10 @@ def run() -> int:
             try:
                 login(page, employee_id, password)
                 select_hall(page)
-                status, detail = read_target_status(page)
+                results: dict[str, dict[str, str]] = {}
+                for target in sorted(TARGETS, key=lambda item: (item.year, item.month, item.day)):
+                    status, detail = read_target_status(page, target)
+                    results[target.key] = {"status": status, "detail": detail}
                 page.screenshot(path=ARTIFACT_DIR / "latest.png", full_page=True)
             except Exception:
                 try:
@@ -795,20 +821,26 @@ def run() -> int:
                 context.close()
                 browser.close()
 
-        current = MonitorState(status=status, checked_at=checked_at, detail=detail)
+        current = MonitorState(run_status="ok", checked_at=checked_at, targets=results)
         save_state(current)
         print(json.dumps(asdict(current), ensure_ascii=False))
-        if status == "available" and previous.status != "available":
+        newly_available = [
+            key
+            for key, result in results.items()
+            if result["status"] == "available"
+            and previous.targets.get(key, {}).get("status") != "available"
+        ]
+        if newly_available:
+            lines = "\n".join(f"- {key}: {results[key]['detail']}" for key in newly_available)
             send_telegram(
                 "[삼성 웨딩 취소표 발견]\n"
-                "서초사옥 · 2027-08-28 · 17:00\n"
-                f"확인 결과: {detail}\n{APPLICATION_URL}"
+                f"서초사옥\n{lines}\n{APPLICATION_URL}"
             )
         return 0
     except Exception as exc:  # noqa: BLE001 - workflow must persist diagnostics
         error = f"{type(exc).__name__}: {exc}"
-        save_state(MonitorState(status="error", checked_at=checked_at, detail=error))
-        if previous.status != "error":
+        save_state(MonitorState(run_status="error", checked_at=checked_at, error=error, targets=previous.targets))
+        if previous.run_status != "error":
             try:
                 send_telegram(f"[삼성 웨딩 모니터 오류]\n{error}\nGitHub Actions 로그를 확인해 주세요.")
             except Exception as telegram_error:  # noqa: BLE001
