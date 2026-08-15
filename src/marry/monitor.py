@@ -562,32 +562,22 @@ def select_hall(page: Page) -> None:
             page.wait_for_load_state("domcontentloaded", timeout=15_000)
         except PlaywrightTimeoutError:
             pass
-        page.wait_for_timeout(2_000)
+        for _ in range(10):
+            if has_visible_text(page, re.compile(r"^\s*안내\s*$")) or has_visible_text(
+                page, re.compile(r"웨딩홀\s*선택")
+            ):
+                break
+            page.wait_for_timeout(500)
+
+    close_calendar_notice(page)
+    page.wait_for_timeout(500)
+
     print(
         "웨딩홀 선택 진입 상태: "
         f"URL={page.url}, 신청버튼열림={opened_application}, 프레임수={len(page.frames)}"
     )
     if has_visible_text(page, re.compile(rf"^\s*{re.escape(TARGET_HALL)}\s*$")):
         return
-
-    if has_visible_text(page, re.compile(r"이용\s*안내|신청이란")):
-        checkboxes = page.locator("input[type=checkbox]")
-        for index in range(checkboxes.count()):
-            checkbox = checkboxes.nth(index)
-            try:
-                if checkbox.is_visible() and not checkbox.is_checked():
-                    checkbox.check(force=True, timeout=1_500)
-            except PlaywrightTimeoutError:
-                continue
-        if click_text(page, ["확인", "다음", "신청하기", "동의"], timeout=3_000):
-            try:
-                page.wait_for_load_state("domcontentloaded", timeout=10_000)
-            except PlaywrightTimeoutError:
-                pass
-            page.wait_for_timeout(1_500)
-            print(f"이용안내 통과 후 URL: {page.url}")
-        if has_visible_text(page, re.compile(rf"^\s*{re.escape(TARGET_HALL)}\s*$")):
-            return
 
     selectors = ["select", "[role=combobox]", "button", ".select", ".dropdown"]
     for frame in page.frames:
