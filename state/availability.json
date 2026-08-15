@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-15T06:52:47+00:00",
+  "checked_at": "2026-08-15T07:06:52+00:00",
   "detail": "RuntimeError: 달력에서 28일을 찾지 못했습니다."
 }
