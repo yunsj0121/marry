@@ -720,34 +720,20 @@ def read_target_status(page: Page) -> tuple[str, str]:
     go_to_target_month(page)
     print(f"목표 월 도달: {month_text(page)}")
 
-    day = page.get_by_text(str(TARGET_DAY), exact=True)
-    visible_days = [day.nth(i) for i in range(day.count()) if day.nth(i).is_visible()]
+    target_date = f"{TARGET_YEAR:04d}{TARGET_MONTH:02d}{TARGET_DAY:02d}"
+    day_button = page.locator(f'button[data-date="{target_date}"]')
     for _ in range(10):
-        if visible_days:
+        if day_button.count() and day_button.first.is_visible():
             break
         page.wait_for_timeout(500)
-        day = page.get_by_text(str(TARGET_DAY), exact=True)
-        visible_days = [day.nth(i) for i in range(day.count()) if day.nth(i).is_visible()]
 
-    if not visible_days:
-        details = []
-        for index in range(day.count()):
-            candidate = day.nth(index)
-            try:
-                box = candidate.bounding_box()
-            except PlaywrightTimeoutError:
-                box = None
-            details.append(f"visible={candidate.is_visible()} box={box}")
-        print(f"'{TARGET_DAY}' 텍스트 매치 {day.count()}개: {details}")
-        try:
-            month_label = page.get_by_text(re.compile(r"\d{4}년\s*\d{1,2}월")).first
-            calendar_container = month_label.locator("xpath=ancestor::*[5]")
-            html_snippet = calendar_container.evaluate("el => el.outerHTML")
-        except PlaywrightTimeoutError:
-            html_snippet = "<가져오기 실패>"
-        print(f"달력 영역 HTML 일부:\n{html_snippet[:4000]}")
+    if not day_button.count():
         raise RuntimeError("달력에서 28일을 찾지 못했습니다.")
-    visible_days[0].click()
+    print(
+        f"{TARGET_DAY}일 버튼 상태: class={day_button.first.get_attribute('class')}, "
+        f"visible={day_button.first.is_visible()}"
+    )
+    day_button.first.click()
     page.wait_for_timeout(500)
 
     time_locator = page.get_by_text(TARGET_TIME, exact=True).first
