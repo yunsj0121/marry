@@ -739,6 +739,13 @@ def read_target_status(page: Page) -> tuple[str, str]:
                 box = None
             details.append(f"visible={candidate.is_visible()} box={box}")
         print(f"'{TARGET_DAY}' 텍스트 매치 {day.count()}개: {details}")
+        try:
+            month_label = page.get_by_text(re.compile(r"\d{4}년\s*\d{1,2}월")).first
+            calendar_container = month_label.locator("xpath=ancestor::*[5]")
+            html_snippet = calendar_container.evaluate("el => el.outerHTML")
+        except PlaywrightTimeoutError:
+            html_snippet = "<가져오기 실패>"
+        print(f"달력 영역 HTML 일부:\n{html_snippet[:4000]}")
         raise RuntimeError("달력에서 28일을 찾지 못했습니다.")
     visible_days[0].click()
     page.wait_for_timeout(500)
