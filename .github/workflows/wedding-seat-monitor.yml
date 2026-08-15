@@ -38,9 +38,9 @@ jobs:
         run: command -v tesseract || (sudo apt-get update && sudo apt-get install -y tesseract-ocr)
       - name: Install project
         run: pip install -e . pytest
-      - name: Test Telegram notification
+      - name: Find Telegram chat id
         if: github.event_name == 'workflow_dispatch'
-        run: python -c "from marry.monitor import send_telegram; send_telegram('[테스트] 삼성 웨딩 모니터 텔레그램 알림 테스트입니다. 이 메시지가 보이면 알림이 정상 작동하는 것입니다.')"
+        run: python -c "import json, os, re, urllib.request; token = re.sub(r'\s+', '', os.environ['TELEGRAM_BOT_TOKEN']); print('getUpdates:', json.dumps(json.load(urllib.request.urlopen(f'https://api.telegram.org/bot{token}/getUpdates')), ensure_ascii=False, indent=2))"
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: Run tests
