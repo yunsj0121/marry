@@ -38,11 +38,9 @@ jobs:
         run: command -v tesseract || (sudo apt-get update && sudo apt-get install -y tesseract-ocr)
       - name: Install project
         run: pip install -e . pytest
-      - name: Check Telegram bot identity
+      - name: Test Telegram notification
         if: github.event_name == 'workflow_dispatch'
-        run: |
-          python -c "import json, os, re, urllib.request; token = re.sub(r'\s+', '', os.environ['TELEGRAM_BOT_TOKEN']); print('getMe:', json.load(urllib.request.urlopen(f'https://api.telegram.org/bot{token}/getMe')))"
-          python -c "import json, os, re, urllib.request; token = re.sub(r'\s+', '', os.environ['TELEGRAM_BOT_TOKEN']); chat_id = re.sub(r'\s+', '', os.environ['TELEGRAM_CHAT_ID']); print('getChat:', json.load(urllib.request.urlopen(f'https://api.telegram.org/bot{token}/getChat?chat_id={chat_id}')))" || echo "getChat failed (see error above)"
+        run: python -c "from marry.monitor import send_telegram; send_telegram('[테스트] 삼성 웨딩 모니터 텔레그램 알림 테스트입니다. 이 메시지가 보이면 알림이 정상 작동하는 것입니다.')"
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: Run tests
@@ -67,4 +65,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add state/availability.json
           git commit -m "Update wedding monitor state"
-          git push
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
