@@ -70,6 +70,6 @@ jobs:
               exit 0
             fi
             git fetch origin main
-            git rebase origin/main
+            git merge -X ours --no-edit origin/main
           done
           exit 1
