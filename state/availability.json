@@ -1,5 +1,5 @@
 {
   "status": "error",
-  "checked_at": "2026-08-15T06:34:46+00:00",
+  "checked_at": "2026-08-15T06:40:02+00:00",
   "detail": "RuntimeError: 웨딩홀 선택 영역에서 서초사옥을 찾지 못했습니다."
 }
