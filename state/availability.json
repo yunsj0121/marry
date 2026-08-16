@@ -1,6 +1,6 @@
 {
-  "run_status": "error",
-  "checked_at": "2026-08-16T11:29:03+00:00",
+  "run_status": "ok",
+  "checked_at": "2026-08-16T11:33:35+00:00",
   "targets": {
     "2027-08-28 17:00": {
       "status": "unavailable",
@@ -19,5 +19,5 @@
       "detail": "17:00선택불가 17:00 예약마감"
     }
   },
-  "error": "TimeoutError: Locator.wait_for: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#acoEmpno\") to be visible\n"
+  "error": ""
 }
