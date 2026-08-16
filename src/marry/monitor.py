@@ -847,10 +847,13 @@ def run() -> int:
         ]
         if newly_available:
             lines = "\n".join(f"- {key}: {results[key]['detail']}" for key in newly_available)
-            send_telegram(
-                "[삼성 웨딩 취소표 발견]\n"
-                f"서초사옥\n{lines}\n{APPLICATION_URL}"
-            )
+            try:
+                send_telegram(
+                    "[삼성 웨딩 취소표 발견]\n"
+                    f"서초사옥\n{lines}\n{APPLICATION_URL}"
+                )
+            except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
+                print(f"취소표 알림 전송 실패: {telegram_error}", file=sys.stderr)
         return 0
     except Exception as exc:  # noqa: BLE001 - workflow must persist diagnostics
         error = f"{type(exc).__name__}: {exc}"
