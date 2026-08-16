@@ -372,7 +372,21 @@ def handle_security_page(page: Page) -> bool:
                 )
             else:
                 radios.last.evaluate("element => element.click()")
-            selected = True
+            page.wait_for_timeout(150)
+            selected = radios.last.is_checked()
+        except Exception:  # noqa: BLE001 - fall back to other selection methods
+            pass
+    if not selected and radios.count() >= 2:
+        try:
+            radios.last.evaluate(
+                """element => {
+                    element.checked = true;
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                }"""
+            )
+            page.wait_for_timeout(150)
+            selected = radios.last.is_checked()
         except Exception:  # noqa: BLE001 - fall back to clicking the card
             pass
     if not selected:
@@ -388,8 +402,9 @@ def handle_security_page(page: Page) -> bool:
                 try:
                     target.click(force=True, timeout=2_000)
                     page.wait_for_timeout(250)
-                    selected = True
-                    break
+                    selected = radios.count() < 2 or radios.last.is_checked()
+                    if selected:
+                        break
                 except PlaywrightTimeoutError:
                     continue
             if selected:
