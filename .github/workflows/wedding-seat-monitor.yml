@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/wedding-seat-monitor.yml"
   schedule:
-    - cron: "7 * * * *"
+    - cron: "7,37 7-22 * * *"
       timezone: "Asia/Seoul"
   workflow_dispatch:
 
