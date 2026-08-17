@@ -1361,18 +1361,16 @@ def run() -> int:
                 sections.append(f"[{hall}]\n" + "\n".join(hall_lines))
         lines = "\n\n".join(sections)
 
-        if newly_available:
-            header = "[삼성 웨딩 취소표 발견]"
-        elif any(result["status"] == "unknown" for result in results.values()):
-            # 상태 문구를 못 읽은 경우. 사이트 개편으로 판정이 깨졌을 수 있으니 눈에 띄게 알린다.
-            header = "[삼성 웨딩 모니터] 상태 확인불가 ⚠️"
-        else:
-            header = "[삼성 웨딩 모니터] 체크 완료"
-        stamp = now.strftime("%m/%d %H:%M")
-        try:
-            send_telegram(cap_message(f"{header} ({stamp} KST)\n\n{lines}\n\n{APPLICATION_URL}"))
-        except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
-            print(f"상태 알림 전송 실패: {telegram_error}", file=sys.stderr)
+        has_unknown = any(result["status"] == "unknown" for result in results.values())
+        # 매 체크마다 알리지 않고, 새로 열린 자리가 생기거나 상태를 못 읽은 경우(사이트
+        # 개편 등으로 판정이 깨졌을 수 있음)에만 알린다.
+        if newly_available or has_unknown:
+            header = "[삼성 웨딩 취소표 발견]" if newly_available else "[삼성 웨딩 모니터] 상태 확인불가 ⚠️"
+            stamp = now.strftime("%m/%d %H:%M")
+            try:
+                send_telegram(cap_message(f"{header} ({stamp} KST)\n\n{lines}\n\n{APPLICATION_URL}"))
+            except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
+                print(f"상태 알림 전송 실패: {telegram_error}", file=sys.stderr)
         return 0
     except Exception as exc:  # noqa: BLE001 - workflow must persist diagnostics
         error = f"{type(exc).__name__}: {exc}"
