@@ -190,6 +190,25 @@ def has_visible_text(page: Page, pattern: re.Pattern[str]) -> bool:
     return False
 
 
+def click_text_containing(page: Page, text: str, timeout: int = 2_000) -> bool:
+    """click_text의 정확매칭이 실패할 때 쓰는 부분매칭 폴백.
+    접근성 라벨이 같은 텍스트에 붙어 있어 정확매칭이 안 되는 경우가 있다."""
+    matches = page.get_by_text(re.compile(re.escape(text)))
+    for index in range(matches.count()):
+        candidate = matches.nth(index)
+        try:
+            if candidate.is_visible():
+                candidate.click(timeout=timeout, force=True)
+                return True
+        except PlaywrightTimeoutError:
+            continue
+    return False
+
+
+def click_hall_option(page: Page, hall_name: str) -> bool:
+    return click_text(page, [hall_name], timeout=3_000) or click_text_containing(page, hall_name)
+
+
 def fill_first(page: Page, selectors: list[str], value: str) -> None:
     for frame in page.frames:
         for selector in selectors:
@@ -739,36 +758,44 @@ def select_hall(page: Page, hall_name: str = TARGET_HALL) -> None:
     if has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$")):
         return
 
-    # 실제 마크업을 모른 채 계속 추측하는 대신, 홀 선택 영역의 HTML을 덤프해
-    # 다음 진단(실패 시)에 그대로 쓸 수 있게 한다.
+    # "서초사옥" 텍스트가 정확히 일치하는 요소는 전부 안 보임(is_visible=False)으로
+    # 확인됐다 - 실제로 보이는 박스는 "선택됨" 같은 접근성 라벨이 같은 텍스트에 붙어
+    # 있을 가능성이 높다(달력 날짜 버튼에서 이미 겪은 패턴). "선택됨"은 실제로 존재가
+    # 확인된 텍스트라 이걸 기준으로 진단 영역을 잡는다.
     try:
-        label = page.get_by_text(re.compile(r"웨딩홀\s*선택")).first
-        if label.count():
-            container = label.locator("xpath=../..")
+        value_box = page.get_by_text(re.compile(r"선택됨")).first
+        if value_box.count():
+            container = value_box.locator("xpath=../../..")
             html = container.evaluate("el => el.outerHTML")
-            print(f"홀 선택 영역 HTML(최대 2000자): {html[:2000]}")
+            print(f"홀 선택 영역 HTML(최대 2500자): {html[:2500]}")
         else:
-            print("홀 선택 영역 HTML 진단: '웨딩홀 선택' 텍스트를 찾지 못함")
+            print("홀 선택 영역 HTML 진단: '선택됨' 텍스트를 찾지 못함")
     except Exception as diag_error:  # noqa: BLE001 - 진단 실패는 무시하고 계속 진행
         print(f"홀 선택 영역 HTML 진단 실패: {diag_error}")
 
     # 전략 1: 현재 선택된 홀 이름이 표시된 박스를 직접 클릭해 커스텀 드롭다운을 연다.
+    # 정확히 일치하는 텍스트가 아니라 포함(substring)으로 찾는다 - 위 진단대로
+    # 실제로 보이는 박스는 이름 뒤에 접근성 라벨이 붙어 있을 수 있다.
     for known_hall in KNOWN_HALLS:
-        current_box = page.get_by_text(re.compile(rf"^\s*{re.escape(known_hall)}\s*$"))
-        count = current_box.count()
-        visible = count > 0 and current_box.first.is_visible()
-        print(f"홀 선택 - '{known_hall}' 박스 탐색: count={count}, visible={visible}")
-        if not visible:
+        matches = page.get_by_text(re.compile(re.escape(known_hall)))
+        count = matches.count()
+        visible_index = None
+        for match_index in range(count):
+            if matches.nth(match_index).is_visible():
+                visible_index = match_index
+                break
+        print(f"홀 선택 - '{known_hall}' 박스 탐색: count={count}, visible_index={visible_index}")
+        if visible_index is None:
             continue
         try:
-            current_box.first.click(timeout=2_000, force=True)
+            matches.nth(visible_index).click(timeout=2_000, force=True)
         except PlaywrightTimeoutError as click_error:
             print(f"홀 선택 - '{known_hall}' 박스 클릭 실패: {click_error}")
             continue
         page.wait_for_timeout(300)
         opened = has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$"))
         print(f"홀 선택 - '{known_hall}' 박스 클릭 후 '{hall_name}' 표시={opened}")
-        if click_text(page, [hall_name], timeout=3_000):
+        if click_hall_option(page, hall_name):
             close_calendar_notice(page)
             page.wait_for_timeout(500)
             return
@@ -785,7 +812,7 @@ def select_hall(page: Page, hall_name: str = TARGET_HALL) -> None:
                 page.wait_for_timeout(300)
                 opened = has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$"))
                 print(f"홀 선택 - selector={selector!r} 클릭 후 '{hall_name}' 표시={opened}")
-                if click_text(page, [hall_name], timeout=3_000):
+                if click_hall_option(page, hall_name):
                     close_calendar_notice(page)
                     page.wait_for_timeout(500)
                     return
