@@ -1338,10 +1338,10 @@ def run() -> int:
         }
         status_labels = {"available": "예약가능", "unavailable": "예약마감"}
 
-        def format_line(key: str, result: dict[str, str]) -> str:
+        def format_line(key: str, result: dict[str, str], display: str | None = None) -> str:
             label = status_labels.get(result["status"], "확인불가")
             flag = " 🎉 신규!" if key in newly_available else ""
-            return f"- {key}: {label}{flag}"
+            return f"- {display if display is not None else key}: {label}{flag}"
 
         seocho_target_keys = {target.key for target in TARGETS + extra_targets}
         other_halls = sorted({scan.hall for scan in HALL_DAY_SCANS} | {scan.hall for scan in HALL_MONTH_SCANS})
@@ -1350,11 +1350,13 @@ def run() -> int:
         if seocho_lines:
             sections.append(f"[{TARGET_HALL}]\n" + "\n".join(seocho_lines))
         for hall in other_halls:
-            hall_lines = [
-                format_line(k, results[k])
-                for k in sorted(results)
-                if k == hall or k.startswith(f"{hall} ")
-            ]
+            # 섹션 헤더에 이미 홀 이름이 있으니, 각 줄에서는 중복되는 홀 이름 접두어를 뗀다.
+            hall_lines = []
+            for k in sorted(results):
+                if k == hall:
+                    hall_lines.append(format_line(k, results[k]))
+                elif k.startswith(f"{hall} "):
+                    hall_lines.append(format_line(k, results[k], display=k[len(hall) + 1 :]))
             if hall_lines:
                 sections.append(f"[{hall}]\n" + "\n".join(hall_lines))
         lines = "\n\n".join(sections)
