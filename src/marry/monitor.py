@@ -5,11 +5,13 @@ import io
 import os
 import re
 import sys
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 import pytesseract
 from PIL import Image, ImageEnhance, ImageOps
@@ -20,6 +22,12 @@ APPLICATION_URL = "https://s-wedding.samsungcard.com/internal/add-apply/UWDDWSWH
 TARGET_HALL = "서초사옥"
 STATE_PATH = Path("state/availability.json")
 ARTIFACT_DIR = Path("artifacts")
+KST = ZoneInfo("Asia/Seoul")
+
+# 실패 알림에 붙일 최근 진단 로그. GitHub Actions 로그를 따로 열지 않아도
+# 텔레그램 메시지만으로 원인을 좁힐 수 있게 해 준다.
+DIAGNOSTIC_LINES: deque[str] = deque(maxlen=25)
+TELEGRAM_LIMIT = 4_000
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,53 @@ class MonitorState:
     checked_at: str
     targets: dict[str, dict[str, str]] = field(default_factory=dict)
     error: str = ""
+
+
+class DiagnosticTee(io.TextIOBase):
+    """stdout을 그대로 흘려보내면서 마지막 몇 줄을 따로 모아 둔다."""
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+        self._partial = ""
+
+    def write(self, text: str) -> int:
+        self._stream.write(text)
+        self._partial += text
+        while "\n" in self._partial:
+            line, self._partial = self._partial.split("\n", 1)
+            line = line.strip()
+            if line:
+                DIAGNOSTIC_LINES.append(line[:300])
+        return len(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+
+def actions_run_url() -> str:
+    repository = os.getenv("GITHUB_REPOSITORY", "")
+    run_id = os.getenv("GITHUB_RUN_ID", "")
+    if not repository or not run_id:
+        return ""
+    server = os.getenv("GITHUB_SERVER_URL", "https://github.com")
+    return f"{server}/{repository}/actions/runs/{run_id}"
+
+
+def build_error_message(error: str) -> str:
+    sections = [f"[삼성 웨딩 모니터 오류]\n{error[:600]}"]
+    recent = [line for line in DIAGNOSTIC_LINES if line]
+    if recent:
+        body = "\n".join(f"- {line}" for line in recent)
+        sections.append(f"최근 진단 로그:\n{body}")
+    run_url = actions_run_url()
+    if run_url:
+        sections.append(run_url)
+    else:
+        sections.append("GitHub Actions 로그를 확인해 주세요.")
+    message = "\n\n".join(sections)
+    if len(message) > TELEGRAM_LIMIT:
+        message = message[: TELEGRAM_LIMIT - 3] + "..."
+    return message
 
 
 def required_env(name: str) -> str:
@@ -87,12 +142,12 @@ def fill_first(page: Page, selectors: list[str], value: str) -> None:
         for selector in selectors:
             fields = frame.locator(selector)
             for index in range(fields.count()):
-                field = fields.nth(index)
+                input_field = fields.nth(index)
                 try:
-                    if not field.is_visible():
+                    if not input_field.is_visible():
                         continue
-                    field.fill(value, timeout=2_000)
-                    if field.input_value() == value:
+                    input_field.fill(value, timeout=2_000)
+                    if input_field.input_value() == value:
                         return
                 except (PlaywrightTimeoutError, AssertionError):
                     pass
@@ -361,7 +416,7 @@ def handle_security_page(page: Page) -> bool:
         print(
             "보안선택 라디오: "
             f"index={index}, id={radio_id}, name={radio.get_attribute('name') or ''}, "
-            f"value={radio.get_attribute('value') or ''}, label={label_text}"
+            f"value={radio.get_attribute('value') or ''}, label={label_text[:40]}"
         )
     if radios.count() >= 2:
         try:
@@ -791,9 +846,11 @@ def read_target_status(page: Page, target: Target) -> tuple[str, str]:
     time_locator.wait_for(state="visible", timeout=5_000)
     container = closest_status_container(time_locator)
     detail = re.sub(r"\s+", " ", container.inner_text()).strip()
-    if "예약가능" in detail:
+    # 사이트가 "예약 가능"처럼 띄어쓰기를 넣어도 놓치지 않도록 공백을 모두 지우고 비교한다.
+    compact = re.sub(r"\s+", "", detail)
+    if "예약가능" in compact:
         return "available", detail
-    if "예약마감" in detail or "마감" in detail:
+    if "예약마감" in compact or "마감" in compact:
         return "unavailable", detail
     return "unknown", detail
 
@@ -828,8 +885,10 @@ def save_state(state: MonitorState) -> None:
 
 def run() -> int:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    sys.stdout = DiagnosticTee(sys.stdout)
     previous = load_previous_state()
-    checked_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    now = datetime.now(KST)
+    checked_at = now.isoformat(timespec="seconds")
     try:
         employee_id = required_env("SAMSUNG_WEDDING_EMPLOYEE_ID")
         password = required_env("SAMSUNG_WEDDING_EMPLOYEE_PASSWORD")
@@ -841,7 +900,9 @@ def run() -> int:
                 login(page, employee_id, password)
                 select_hall(page)
                 results: dict[str, dict[str, str]] = {}
-                for target in sorted(TARGETS, key=lambda item: (item.year, item.month, item.day)):
+                for target in sorted(
+                    TARGETS, key=lambda item: (item.year, item.month, item.day, item.time)
+                ):
                     status, detail = read_target_status(page, target)
                     results[target.key] = {"status": status, "detail": detail}
                 page.screenshot(path=ARTIFACT_DIR / "latest.png", full_page=True)
@@ -870,18 +931,26 @@ def run() -> int:
             + (" 🎉 신규!" if key in newly_available else "")
             for key, result in sorted(results.items())
         )
-        header = "[삼성 웨딩 취소표 발견]" if newly_available else "[삼성 웨딩 모니터] 체크 완료"
+        if newly_available:
+            header = "[삼성 웨딩 취소표 발견]"
+        elif any(result["status"] == "unknown" for result in results.values()):
+            # 상태 문구를 못 읽은 경우. 사이트 개편으로 판정이 깨졌을 수 있으니 눈에 띄게 알린다.
+            header = "[삼성 웨딩 모니터] 상태 확인불가 ⚠️"
+        else:
+            header = "[삼성 웨딩 모니터] 체크 완료"
+        stamp = now.strftime("%m/%d %H:%M")
         try:
-            send_telegram(f"{header}\n서초사옥\n{lines}\n{APPLICATION_URL}")
+            send_telegram(f"{header}\n서초사옥 ({stamp} KST)\n{lines}\n{APPLICATION_URL}")
         except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
             print(f"상태 알림 전송 실패: {telegram_error}", file=sys.stderr)
         return 0
     except Exception as exc:  # noqa: BLE001 - workflow must persist diagnostics
         error = f"{type(exc).__name__}: {exc}"
         save_state(MonitorState(run_status="error", checked_at=checked_at, error=error, targets=previous.targets))
-        if previous.run_status != "error":
+        # 같은 오류가 반복될 때만 조용히 넘어간다. 오류 내용이 달라지면 새 실패이므로 알린다.
+        if previous.run_status != "error" or previous.error != error:
             try:
-                send_telegram(f"[삼성 웨딩 모니터 오류]\n{error}\nGitHub Actions 로그를 확인해 주세요.")
+                send_telegram(build_error_message(error))
             except Exception as telegram_error:  # noqa: BLE001
                 print(f"텔레그램 오류 알림도 실패했습니다: {telegram_error}", file=sys.stderr)
         print(error, file=sys.stderr)
