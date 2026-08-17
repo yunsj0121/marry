@@ -906,7 +906,10 @@ def close_calendar_notice(page: Page) -> None:
             return
 
 
-def go_to_target_month(page: Page, target_year: int, target_month: int) -> None:
+def go_to_target_month(page: Page, target_year: int, target_month: int) -> bool:
+    """목표 월에 도달하면 True. 그 홀이 목표 월에 운영을 안 해서 달력이 다음
+    "운영 월"로 건너뛰는 경우(휴무로 추정) False를 반환한다 - 오류가 아니라
+    그 달은 예약 불가라는 정상적인 신호로 다룬다."""
     close_calendar_notice(page)
     for _ in range(24):
         current = month_text(page)
@@ -915,12 +918,13 @@ def go_to_target_month(page: Page, target_year: int, target_month: int) -> None:
             raise RuntimeError("달력의 연월을 읽지 못했습니다.")
         year, month = map(int, found.groups())
         if (year, month) == (target_year, target_month):
-            return
+            return True
         if (year, month) > (target_year, target_month):
-            raise RuntimeError(
-                f"달력이 목표 월보다 뒤에 있어 자동 이동하지 않았습니다. "
-                f"현재={year}년 {month}월(원문 '{current}'), 목표={target_year}년 {target_month}월"
+            print(
+                f"목표 월을 건너뛴 것으로 보임(운영하지 않는 달로 추정): "
+                f"목표={target_year}년 {target_month}월, 도달={year}년 {month}월"
             )
+            return False
 
         month_label = page.get_by_text(re.compile(rf"{year}년\s*{month}월")).first
         parent = month_label.locator("xpath=..")
@@ -986,8 +990,9 @@ def classify_status(detail: str) -> str:
     return "unknown"
 
 
-def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
-    go_to_target_month(page, year, month)
+def click_day_button(page: Page, year: int, month: int, day: int) -> Locator | None:
+    if not go_to_target_month(page, year, month):
+        return None
     print(f"목표 월 도달: {month_text(page)}")
 
     target_date = f"{year:04d}{month:02d}{day:02d}"
@@ -1016,7 +1021,8 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
 
 
 def read_target_status(page: Page, target: Target) -> tuple[str, str]:
-    click_day_button(page, target.year, target.month, target.day)
+    if click_day_button(page, target.year, target.month, target.day) is None:
+        return "unavailable", "해당 월은 운영하지 않는 것으로 추정(달력에서 건너뜀)"
 
     time_locator = page.get_by_text(target.time, exact=True).first
     time_locator.wait_for(state="visible", timeout=5_000)
@@ -1053,13 +1059,16 @@ def read_all_times_for_day(page: Page) -> dict[str, str]:
 
 
 def read_day_times(page: Page, year: int, month: int, day: int) -> dict[str, str]:
-    click_day_button(page, year, month, day)
+    if click_day_button(page, year, month, day) is None:
+        return {}
     return read_all_times_for_day(page)
 
 
 def scan_month_day_labels(page: Page, year: int, month: int) -> dict[int, str]:
-    """이번 달 달력에서 각 날짜 버튼의 표시 텍스트(마감 배지 포함)를 클릭 없이 읽는다."""
-    go_to_target_month(page, year, month)
+    """이번 달 달력에서 각 날짜 버튼의 표시 텍스트(마감 배지 포함)를 클릭 없이 읽는다.
+    그 달을 운영하지 않아 달력이 건너뛰면 빈 dict를 반환한다."""
+    if not go_to_target_month(page, year, month):
+        return {}
     prefix = f"{year:04d}{month:02d}"
     day_buttons = page.locator(f'button[data-date^="{prefix}"]')
     labels: dict[int, str] = {}
@@ -1077,9 +1086,12 @@ def scan_month_day_labels(page: Page, year: int, month: int) -> dict[int, str]:
     return labels
 
 
-def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict[str, str]]:
+def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict[str, str]] | None:
     """이번 달 전체를 훑어, 마감 배지가 없는 날짜만 클릭해 실제 시간대 상태를 확인한다.
-    달력에 이미 마감으로 표시된 날짜는 클릭하지 않아 실행 시간을 아낀다."""
+    달력에 이미 마감으로 표시된 날짜는 클릭하지 않아 실행 시간을 아낀다.
+    그 달을 운영하지 않아 달력이 건너뛰면 None을 반환한다."""
+    if not go_to_target_month(page, year, month):
+        return None
     labels = scan_month_day_labels(page, year, month)
     results: dict[str, dict[str, str]] = {}
     for day, label in sorted(labels.items()):
@@ -1191,8 +1203,8 @@ def run() -> int:
                                 continue
                             if not times:
                                 results[f"{hall} {date_key}"] = {
-                                    "status": "unknown",
-                                    "detail": "시간대를 찾지 못했습니다.",
+                                    "status": "unavailable",
+                                    "detail": "해당 월은 운영하지 않는 것으로 추정(달력에서 건너뜀)",
                                 }
                             for time_str, status in sorted(times.items()):
                                 results[f"{hall} {date_key} {time_str}"] = {
@@ -1208,6 +1220,12 @@ def run() -> int:
                                 results[f"{hall} {month_key}"] = {
                                     "status": "unknown",
                                     "detail": f"스캔 실패: {scan_error}",
+                                }
+                                continue
+                            if openings is None:
+                                results[f"{hall} {month_key}"] = {
+                                    "status": "unavailable",
+                                    "detail": "해당 월은 운영하지 않는 것으로 추정(달력에서 건너뜀)",
                                 }
                                 continue
                             for date_key, times in sorted(openings.items()):
