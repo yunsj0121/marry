@@ -1003,7 +1003,47 @@ def classify_status(detail: str) -> str:
     return "unknown"
 
 
-def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
+def click_table_day(page: Page, day: int) -> str | None:
+    """구형 <table class="ui_calendar_table"> 달력(예: 삼성금융연수원)에서 날짜 버튼을 찾는다.
+    이 달력은 data-date 속성이 없고, 대신 <td> 안에 버튼(날짜 숫자)과
+    <span class="end">마감</span>이 형제로 들어 있다. 마감/비활성 날짜는 굳이 클릭하지
+    않아도 상태를 바로 알 수 있다.
+    반환값: "opened"(클릭 성공, 시간대 패널을 읽으면 됨), "closed"(마감/비활성으로 확인,
+    클릭 불필요), 그 날짜를 아예 못 찾으면 None."""
+    table = page.locator("table.ui_calendar_table")
+    if not table.count():
+        return None
+    buttons = table.locator("td button")
+    for index in range(buttons.count()):
+        button = buttons.nth(index)
+        try:
+            text = re.sub(r"\s+", "", button.inner_text(timeout=500))
+        except PlaywrightTimeoutError:
+            continue
+        digits = re.sub(r"\D", "", text)
+        if digits != str(day):
+            continue
+        class_attr = button.get_attribute("class") or ""
+        cell = button.locator("xpath=..")
+        try:
+            cell_text = re.sub(r"\s+", "", cell.inner_text(timeout=500))
+        except PlaywrightTimeoutError:
+            cell_text = ""
+        if "disabled" in class_attr or "마감" in cell_text:
+            print(f"{day}일: 구형 테이블 달력에서 마감/비활성 확인 (class={class_attr!r}, 셀텍스트={cell_text!r})")
+            return "closed"
+        try:
+            button.click(timeout=2_000)
+            page.wait_for_timeout(500)
+            return "opened"
+        except PlaywrightTimeoutError:
+            return "closed"
+    return None
+
+
+def click_day_button(page: Page, year: int, month: int, day: int) -> str:
+    """반환값: "opened"(클릭 성공, 시간대 패널을 읽으면 됨) 또는 "closed"(구형 테이블
+    달력에서 이미 마감/비활성으로 확인돼 클릭이 불필요함). 날짜를 아예 못 찾으면 RuntimeError."""
     go_to_target_month(page, year, month)
     print(f"목표 월 도달: {month_text(page)}")
 
@@ -1014,38 +1054,33 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
             break
         page.wait_for_timeout(500)
 
-    if not day_button.count():
-        all_day_buttons = page.locator("button[data-date]")
-        total = all_day_buttons.count()
-        sample = [
-            all_day_buttons.nth(i).get_attribute("data-date")
-            for i in range(min(total, 10))
-        ]
-        print(f"날짜 버튼 진단: 전체 data-date 버튼 수={total}, 샘플={sample}")
-        # 실제 화면에는 날짜가 보이는 경우가 있어(예: "마감" 배지), 달력 그리드의
-        # 실제 HTML을 덤프해 우리가 찾는 선택자가 맞는지 확인한다.
-        try:
-            badge = page.get_by_text("마감", exact=True).first
-            if badge.count():
-                grid = badge.locator("xpath=../../../..")
-                html = grid.evaluate("el => el.outerHTML")
-                print(f"달력 그리드 HTML(최대 3000자): {html[:3000]}")
-            else:
-                print("달력 그리드 HTML 진단: '마감' 텍스트를 찾지 못함")
-        except Exception as diag_error:  # noqa: BLE001 - 진단 실패는 무시하고 계속 진행
-            print(f"달력 그리드 HTML 진단 실패: {diag_error}")
-        raise RuntimeError(f"달력에서 {year}-{month:02d}-{day:02d}를 찾지 못했습니다.")
-    print(
-        f"{year}-{month:02d}-{day:02d} 버튼 상태: class={day_button.first.get_attribute('class')}, "
-        f"visible={day_button.first.is_visible()}"
-    )
-    day_button.first.click()
-    page.wait_for_timeout(500)
-    return day_button
+    if day_button.count():
+        print(
+            f"{year}-{month:02d}-{day:02d} 버튼 상태: class={day_button.first.get_attribute('class')}, "
+            f"visible={day_button.first.is_visible()}"
+        )
+        day_button.first.click()
+        page.wait_for_timeout(500)
+        return "opened"
+
+    # data-date 속성이 없는 구형 <table> 달력(예: 삼성금융연수원)일 수 있다.
+    table_result = click_table_day(page, day)
+    if table_result is not None:
+        return table_result
+
+    all_day_buttons = page.locator("button[data-date]")
+    total = all_day_buttons.count()
+    sample = [
+        all_day_buttons.nth(i).get_attribute("data-date")
+        for i in range(min(total, 10))
+    ]
+    print(f"날짜 버튼 진단: 전체 data-date 버튼 수={total}, 샘플={sample}")
+    raise RuntimeError(f"달력에서 {year}-{month:02d}-{day:02d}를 찾지 못했습니다.")
 
 
 def read_target_status(page: Page, target: Target) -> tuple[str, str]:
-    click_day_button(page, target.year, target.month, target.day)
+    if click_day_button(page, target.year, target.month, target.day) == "closed":
+        return "unavailable", "구형 테이블 달력에서 마감/비활성으로 확인"
 
     time_locator = page.get_by_text(target.time, exact=True).first
     time_locator.wait_for(state="visible", timeout=5_000)
@@ -1082,8 +1117,39 @@ def read_all_times_for_day(page: Page) -> dict[str, str]:
 
 
 def read_day_times(page: Page, year: int, month: int, day: int) -> dict[str, str]:
-    click_day_button(page, year, month, day)
+    if click_day_button(page, year, month, day) == "closed":
+        return {"전체": "unavailable"}
     return read_all_times_for_day(page)
+
+
+def scan_month_table_labels(page: Page, year: int, month: int) -> dict[int, str] | None:
+    """구형 <table class="ui_calendar_table"> 달력(예: 삼성금융연수원)에서 각 날짜의
+    마감 여부를 클릭 없이 읽는다. 그런 표가 없으면 None."""
+    table = page.locator("table.ui_calendar_table")
+    if not table.count():
+        return None
+    cells = table.locator("td")
+    labels: dict[int, str] = {}
+    for index in range(cells.count()):
+        cell = cells.nth(index)
+        button = cell.locator("button")
+        if not button.count():
+            continue
+        try:
+            text = re.sub(r"\s+", "", button.first.inner_text(timeout=500))
+        except PlaywrightTimeoutError:
+            continue
+        digits = re.sub(r"\D", "", text)
+        if not digits:
+            continue
+        day = int(digits)
+        class_attr = button.first.get_attribute("class") or ""
+        try:
+            cell_text = re.sub(r"\s+", "", cell.inner_text(timeout=500))
+        except PlaywrightTimeoutError:
+            cell_text = ""
+        labels[day] = cell_text if ("마감" in cell_text or "disabled" not in class_attr) else "마감"
+    return labels
 
 
 def scan_month_day_labels(page: Page, year: int, month: int) -> dict[int, str]:
@@ -1103,7 +1169,10 @@ def scan_month_day_labels(page: Page, year: int, month: int) -> dict[int, str]:
         except PlaywrightTimeoutError:
             text = ""
         labels[day] = text
-    return labels
+    if labels:
+        return labels
+    # data-date 속성이 없는 구형 <table> 달력(예: 삼성금융연수원)일 수 있다.
+    return scan_month_table_labels(page, year, month) or {}
 
 
 def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict[str, str]]:
@@ -1116,11 +1185,12 @@ def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict
             continue
         target_date = f"{year:04d}{month:02d}{day:02d}"
         day_button = page.locator(f'button[data-date="{target_date}"]')
-        if not day_button.count():
-            continue
-        try:
-            day_button.first.click(timeout=1_000)
-        except PlaywrightTimeoutError:
+        if day_button.count():
+            try:
+                day_button.first.click(timeout=1_000)
+            except PlaywrightTimeoutError:
+                continue
+        elif click_table_day(page, day) != "opened":
             continue
         page.wait_for_timeout(400)
         times = read_all_times_for_day(page)
