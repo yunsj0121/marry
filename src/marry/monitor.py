@@ -1022,6 +1022,18 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
             for i in range(min(total, 10))
         ]
         print(f"날짜 버튼 진단: 전체 data-date 버튼 수={total}, 샘플={sample}")
+        # 실제 화면에는 날짜가 보이는 경우가 있어(예: "마감" 배지), 달력 그리드의
+        # 실제 HTML을 덤프해 우리가 찾는 선택자가 맞는지 확인한다.
+        try:
+            badge = page.get_by_text("마감", exact=True).first
+            if badge.count():
+                grid = badge.locator("xpath=../../../..")
+                html = grid.evaluate("el => el.outerHTML")
+                print(f"달력 그리드 HTML(최대 3000자): {html[:3000]}")
+            else:
+                print("달력 그리드 HTML 진단: '마감' 텍스트를 찾지 못함")
+        except Exception as diag_error:  # noqa: BLE001 - 진단 실패는 무시하고 계속 진행
+            print(f"달력 그리드 HTML 진단 실패: {diag_error}")
         raise RuntimeError(f"달력에서 {year}-{month:02d}-{day:02d}를 찾지 못했습니다.")
     print(
         f"{year}-{month:02d}-{day:02d} 버튼 상태: class={day_button.first.get_attribute('class')}, "
