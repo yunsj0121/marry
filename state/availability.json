@@ -1,6 +1,6 @@
 {
   "run_status": "ok",
-  "checked_at": "2026-08-17T19:25:56+09:00",
+  "checked_at": "2026-08-17T19:32:38+09:00",
   "targets": {
     "2027-08-28 17:00": {
       "status": "unavailable",
@@ -18,9 +18,9 @@
       "status": "unavailable",
       "detail": "17:00선택불가 17:00 예약마감"
     },
-    "삼성금융연수원 2027-08-28": {
-      "status": "unknown",
-      "detail": "확인 실패: 달력에서 2027-08-28를 찾지 못했습니다."
+    "삼성금융연수원 2027-08-28 전체": {
+      "status": "unavailable",
+      "detail": "unavailable"
     }
   },
   "error": ""
