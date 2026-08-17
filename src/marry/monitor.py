@@ -206,6 +206,14 @@ def click_text_containing(page: Page, text: str, timeout: int = 2_000) -> bool:
 
 
 def click_hall_option(page: Page, hall_name: str) -> bool:
+    # 커스텀 드롭다운 옵션은 data-text 속성에 홀 이름을 그대로 담고 있다(확인됨).
+    data_attr_option = page.locator(f'a[data-text="{hall_name}"]')
+    if data_attr_option.count():
+        try:
+            data_attr_option.first.click(timeout=2_000, force=True)
+            return True
+        except PlaywrightTimeoutError:
+            pass
     return click_text(page, [hall_name], timeout=3_000) or click_text_containing(page, hall_name)
 
 
@@ -797,7 +805,9 @@ def select_hall(page: Page, hall_name: str = TARGET_HALL) -> None:
         print(f"홀 선택 - '{known_hall}' 박스 클릭 후 '{hall_name}' 표시={opened}")
         if click_hall_option(page, hall_name):
             close_calendar_notice(page)
-            page.wait_for_timeout(500)
+            # 홀을 바꾸면 그 홀의 달력 데이터를 새로 불러오는 것으로 보인다.
+            # 날짜 버튼이 채워질 시간을 넉넉히 준다.
+            page.wait_for_timeout(1_500)
             return
 
     # 전략 2: 웨딩홀/선택 문구를 포함한 일반적인 컨테이너를 클릭해 드롭다운을 연다.
@@ -907,7 +917,10 @@ def go_to_target_month(page: Page, target_year: int, target_month: int) -> None:
         if (year, month) == (target_year, target_month):
             return
         if (year, month) > (target_year, target_month):
-            raise RuntimeError("달력이 목표 월보다 뒤에 있어 자동 이동하지 않았습니다.")
+            raise RuntimeError(
+                f"달력이 목표 월보다 뒤에 있어 자동 이동하지 않았습니다. "
+                f"현재={year}년 {month}월(원문 '{current}'), 목표={target_year}년 {target_month}월"
+            )
 
         month_label = page.get_by_text(re.compile(rf"{year}년\s*{month}월")).first
         parent = month_label.locator("xpath=..")
@@ -985,6 +998,13 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
         page.wait_for_timeout(500)
 
     if not day_button.count():
+        all_day_buttons = page.locator("button[data-date]")
+        total = all_day_buttons.count()
+        sample = [
+            all_day_buttons.nth(i).get_attribute("data-date")
+            for i in range(min(total, 10))
+        ]
+        print(f"날짜 버튼 진단: 전체 data-date 버튼 수={total}, 샘플={sample}")
         raise RuntimeError(f"달력에서 {year}-{month:02d}-{day:02d}를 찾지 못했습니다.")
     print(
         f"{year}-{month:02d}-{day:02d} 버튼 상태: class={day_button.first.get_attribute('class')}, "
