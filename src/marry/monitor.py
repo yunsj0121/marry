@@ -450,6 +450,19 @@ def handle_security_page(page: Page) -> bool:
     return True
 
 
+def wait_for_login_form(page: Page, attempts: int = 3) -> bool:
+    for attempt in range(attempts):
+        try:
+            page.locator("#acoEmpno").wait_for(state="visible", timeout=15_000)
+            return True
+        except PlaywrightTimeoutError:
+            print(f"사원번호 입력란 대기 실패(시도 {attempt + 1}/{attempts}) URL: {page.url}")
+            if attempt == attempts - 1 or "UWDDWSCO02M2" not in page.url:
+                return False
+            handle_security_page(page)
+    return False
+
+
 def login(page: Page, employee_id: str, password: str) -> None:
     def accept_dialog(dialog) -> None:
         print(f"브라우저 알림: {dialog.message}")
@@ -498,10 +511,8 @@ def login(page: Page, employee_id: str, password: str) -> None:
         handle_security_page(page)
 
     login_heading = page.get_by_text(re.compile(r"사원번호.*아이디.*로그인")).first
-    try:
-        page.locator("#acoEmpno").wait_for(state="visible", timeout=15_000)
-    except PlaywrightTimeoutError as exc:
-        raise RuntimeError("회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다.") from exc
+    if not wait_for_login_form(page):
+        raise RuntimeError("회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다.")
 
     id_selectors = [
         "#acoEmpno",
@@ -547,7 +558,8 @@ def login(page: Page, employee_id: str, password: str) -> None:
         f"confirm_button={page.get_by_role('button', name='확인').count()}"
     )
     if handle_security_page(page):
-        page.locator("#acoEmpno").wait_for(state="visible", timeout=15_000)
+        if not wait_for_login_form(page):
+            raise RuntimeError("보안확인 후 사원번호 로그인 화면으로 이동하지 못했습니다.")
         print(f"보안확인 후 로그인 재입력 시작: {page.url}")
         try:
             fill_first(page, id_selectors, employee_id)
