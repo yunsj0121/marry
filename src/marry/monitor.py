@@ -426,6 +426,13 @@ def handle_security_page(page: Page) -> bool:
     if not click_text(page, ["확인"], timeout=5_000):
         raise RuntimeError("보안프로그램 선택 화면의 확인 버튼을 누르지 못했습니다.")
     page.wait_for_timeout(3_000)
+    for _ in range(3):
+        if "UWDDWSCO02M2" not in page.url:
+            break
+        click_text(page, ["확인"], timeout=3_000)
+        page.wait_for_timeout(2_000)
+    if "UWDDWSCO02M2" in page.url:
+        raise RuntimeError("보안프로그램 확인 후에도 보안 선택 화면을 벗어나지 못했습니다.")
     cookies_after = {
         cookie["name"]: cookie["value"] for cookie in page.context.cookies()
     }
