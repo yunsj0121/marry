@@ -20,6 +20,7 @@ from playwright.sync_api import Locator, Page, TimeoutError as PlaywrightTimeout
 LOGIN_URL = "https://s-wedding.samsungcard.com/login/UWDDWSCO02M1.jsp"
 APPLICATION_URL = "https://s-wedding.samsungcard.com/internal/add-apply/UWDDWSWH04M0.jsp"
 TARGET_HALL = "서초사옥"
+HALL_FINANCE = "삼성금융연수원"
 STATE_PATH = Path("state/availability.json")
 ARTIFACT_DIR = Path("artifacts")
 KST = ZoneInfo("Asia/Seoul")
@@ -47,6 +48,35 @@ TARGETS: list[Target] = [
     Target(2027, 9, 4, "11:00"),
     Target(2027, 9, 4, "13:00"),
     Target(2027, 9, 4, "17:00"),
+]
+
+
+@dataclass(frozen=True)
+class HallDayScan:
+    """특정 날짜 하루의 모든 시간대를 확인한다 (해당 홀은 시간대가 다를 수 있어 고정하지 않음)."""
+
+    hall: str
+    year: int
+    month: int
+    day: int
+
+
+@dataclass(frozen=True)
+class HallMonthScan:
+    """한 달 전체를 훑어 마감이 아닌 날짜의 시간대를 확인한다."""
+
+    hall: str
+    year: int
+    month: int
+
+
+HALL_DAY_SCANS: list[HallDayScan] = [
+    HallDayScan(HALL_FINANCE, 2027, 8, 28),
+]
+
+HALL_MONTH_SCANS: list[HallMonthScan] = [
+    HallMonthScan(HALL_FINANCE, 2027, 9),
+    HallMonthScan(HALL_FINANCE, 2027, 10),
 ]
 
 
@@ -107,6 +137,12 @@ def actions_run_url() -> str:
     return f"{server}/{repository}/actions/runs/{run_id}"
 
 
+def cap_message(message: str, limit: int = TELEGRAM_LIMIT) -> str:
+    if len(message) <= limit:
+        return message
+    return message[: limit - 3] + "..."
+
+
 def build_error_message(error: str) -> str:
     sections = [f"[삼성 웨딩 모니터 오류]\n{error[:600]}"]
     recent = [line for line in DIAGNOSTIC_LINES if line]
@@ -118,10 +154,7 @@ def build_error_message(error: str) -> str:
         sections.append(run_url)
     else:
         sections.append("GitHub Actions 로그를 확인해 주세요.")
-    message = "\n\n".join(sections)
-    if len(message) > TELEGRAM_LIMIT:
-        message = message[: TELEGRAM_LIMIT - 3] + "..."
-    return message
+    return cap_message("\n\n".join(sections))
 
 
 def required_env(name: str) -> str:
@@ -658,7 +691,7 @@ def login(page: Page, employee_id: str, password: str) -> None:
         raise RuntimeError("자동 로그인에 실패했습니다. 보안키패드 또는 추가 인증을 확인하세요.")
 
 
-def select_hall(page: Page) -> None:
+def select_hall(page: Page, hall_name: str = TARGET_HALL) -> None:
     page.goto(APPLICATION_URL, wait_until="domcontentloaded", timeout=30_000)
     if "login" in page.url.lower():
         raise RuntimeError("예약 화면으로 이동하는 동안 로그인 세션이 종료되었습니다.")
@@ -699,11 +732,28 @@ def select_hall(page: Page) -> None:
     print(
         "웨딩홀 선택 진입 상태: "
         f"URL={page.url}, 신청버튼열림={opened_application}, 프레임수={len(page.frames)}, "
-        f"컨텍스트페이지수={len(page.context.pages)}, "
+        f"컨텍스트페이지수={len(page.context.pages)}, 목표홀={hall_name}, "
         f"컨텍스트URL목록={[p.url for p in page.context.pages]}"
     )
-    if has_visible_text(page, re.compile(rf"^\s*{re.escape(TARGET_HALL)}\s*$")):
+    if has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$")):
         return
+
+    native_selects = page.locator("select")
+    for index in range(native_selects.count()):
+        select_el = native_selects.nth(index)
+        try:
+            if not select_el.is_visible():
+                continue
+            select_el.select_option(label=hall_name, timeout=2_000)
+        except PlaywrightTimeoutError:
+            continue
+        except Exception:  # noqa: BLE001 - label option may not exist on this element
+            continue
+        page.wait_for_timeout(300)
+        close_calendar_notice(page)
+        page.wait_for_timeout(300)
+        if has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$")):
+            return
 
     selectors = ["select", "[role=combobox]", "button", ".select", ".dropdown"]
     for frame in page.frames:
@@ -712,7 +762,9 @@ def select_hall(page: Page) -> None:
                 frame.locator(selector).filter(
                     has_text=re.compile("웨딩홀|사옥|선택")
                 ).first.click(timeout=2_000)
-                if click_text(page, [TARGET_HALL], timeout=3_000):
+                if click_text(page, [hall_name], timeout=3_000):
+                    close_calendar_notice(page)
+                    page.wait_for_timeout(500)
                     return
             except PlaywrightTimeoutError:
                 continue
@@ -738,7 +790,7 @@ def select_hall(page: Page) -> None:
                 continue
         frame_previews.append(f"{frame.url} 클릭가능요소: {labels}")
     print("웨딩홀 미발견 진단 - 프레임별 본문 일부:\n" + "\n".join(frame_previews))
-    raise RuntimeError("웨딩홀 선택 영역에서 서초사옥을 찾지 못했습니다.")
+    raise RuntimeError(f"웨딩홀 선택 영역에서 {hall_name}을(를) 찾지 못했습니다.")
 
 
 def month_text(page: Page) -> str:
@@ -841,11 +893,21 @@ def closest_status_container(time_locator: Locator) -> Locator:
     return time_locator.locator("xpath=..")
 
 
-def read_target_status(page: Page, target: Target) -> tuple[str, str]:
-    go_to_target_month(page, target.year, target.month)
+def classify_status(detail: str) -> str:
+    # 사이트가 "예약 가능"처럼 띄어쓰기를 넣어도 놓치지 않도록 공백을 모두 지우고 비교한다.
+    compact = re.sub(r"\s+", "", detail)
+    if "예약가능" in compact:
+        return "available"
+    if "예약마감" in compact or "마감" in compact:
+        return "unavailable"
+    return "unknown"
+
+
+def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
+    go_to_target_month(page, year, month)
     print(f"목표 월 도달: {month_text(page)}")
 
-    target_date = f"{target.year:04d}{target.month:02d}{target.day:02d}"
+    target_date = f"{year:04d}{month:02d}{day:02d}"
     day_button = page.locator(f'button[data-date="{target_date}"]')
     for _ in range(10):
         if day_button.count() and day_button.first.is_visible():
@@ -853,25 +915,101 @@ def read_target_status(page: Page, target: Target) -> tuple[str, str]:
         page.wait_for_timeout(500)
 
     if not day_button.count():
-        raise RuntimeError(f"달력에서 {target.day}일을 찾지 못했습니다.")
+        raise RuntimeError(f"달력에서 {year}-{month:02d}-{day:02d}를 찾지 못했습니다.")
     print(
-        f"{target.key} 버튼 상태: class={day_button.first.get_attribute('class')}, "
+        f"{year}-{month:02d}-{day:02d} 버튼 상태: class={day_button.first.get_attribute('class')}, "
         f"visible={day_button.first.is_visible()}"
     )
     day_button.first.click()
     page.wait_for_timeout(500)
+    return day_button
+
+
+def read_target_status(page: Page, target: Target) -> tuple[str, str]:
+    click_day_button(page, target.year, target.month, target.day)
 
     time_locator = page.get_by_text(target.time, exact=True).first
     time_locator.wait_for(state="visible", timeout=5_000)
     container = closest_status_container(time_locator)
     detail = re.sub(r"\s+", " ", container.inner_text()).strip()
-    # 사이트가 "예약 가능"처럼 띄어쓰기를 넣어도 놓치지 않도록 공백을 모두 지우고 비교한다.
-    compact = re.sub(r"\s+", "", detail)
-    if "예약가능" in compact:
-        return "available", detail
-    if "예약마감" in compact or "마감" in compact:
-        return "unavailable", detail
-    return "unknown", detail
+    return classify_status(detail), detail
+
+
+TIME_TEXT_PATTERN = re.compile(r"^\d{1,2}:\d{2}$")
+
+
+def read_all_times_for_day(page: Page) -> dict[str, str]:
+    """현재 열려 있는 날짜 상세 패널에서 보이는 모든 시간대의 예약 상태를 읽는다.
+    시간대가 홀마다 다를 수 있어, 특정 시간을 고정하지 않고 화면에 보이는 대로 훑는다."""
+    time_locators = page.get_by_text(TIME_TEXT_PATTERN)
+    results: dict[str, str] = {}
+    for index in range(time_locators.count()):
+        loc = time_locators.nth(index)
+        try:
+            if not loc.is_visible():
+                continue
+            time_text = loc.inner_text(timeout=500).strip()
+        except PlaywrightTimeoutError:
+            continue
+        if time_text in results:
+            continue
+        container = closest_status_container(loc)
+        try:
+            detail = re.sub(r"\s+", " ", container.inner_text(timeout=1_000)).strip()
+        except PlaywrightTimeoutError:
+            continue
+        results[time_text] = classify_status(detail)
+    return results
+
+
+def read_day_times(page: Page, year: int, month: int, day: int) -> dict[str, str]:
+    click_day_button(page, year, month, day)
+    return read_all_times_for_day(page)
+
+
+def scan_month_day_labels(page: Page, year: int, month: int) -> dict[int, str]:
+    """이번 달 달력에서 각 날짜 버튼의 표시 텍스트(마감 배지 포함)를 클릭 없이 읽는다."""
+    go_to_target_month(page, year, month)
+    prefix = f"{year:04d}{month:02d}"
+    day_buttons = page.locator(f'button[data-date^="{prefix}"]')
+    labels: dict[int, str] = {}
+    for index in range(day_buttons.count()):
+        button = day_buttons.nth(index)
+        date_attr = button.get_attribute("data-date") or ""
+        if len(date_attr) != 8:
+            continue
+        day = int(date_attr[6:8])
+        try:
+            text = re.sub(r"\s+", "", button.inner_text(timeout=500))
+        except PlaywrightTimeoutError:
+            text = ""
+        labels[day] = text
+    return labels
+
+
+def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict[str, str]]:
+    """이번 달 전체를 훑어, 마감 배지가 없는 날짜만 클릭해 실제 시간대 상태를 확인한다.
+    달력에 이미 마감으로 표시된 날짜는 클릭하지 않아 실행 시간을 아낀다."""
+    labels = scan_month_day_labels(page, year, month)
+    results: dict[str, dict[str, str]] = {}
+    for day, label in sorted(labels.items()):
+        if "마감" in label:
+            continue
+        target_date = f"{year:04d}{month:02d}{day:02d}"
+        day_button = page.locator(f'button[data-date="{target_date}"]')
+        if not day_button.count():
+            continue
+        try:
+            day_button.first.click(timeout=1_000)
+        except PlaywrightTimeoutError:
+            continue
+        page.wait_for_timeout(400)
+        times = read_all_times_for_day(page)
+        if times:
+            date_key = f"{year:04d}-{month:02d}-{day:02d}"
+            results[date_key] = times
+            print(f"{date_key} 마감 아님 - 시간대: {times}")
+    return results
 
 
 def send_telegram(message: str) -> None:
@@ -928,6 +1066,67 @@ def run() -> int:
                 ):
                     status, detail = read_target_status(page, target)
                     results[target.key] = {"status": status, "detail": detail}
+
+                # 다른 홀(예: 삼성금융연수원)은 실패해도 서초사옥 결과는 그대로 알림이 가도록
+                # 홀 단위로 예외를 격리한다.
+                scan_halls = sorted(
+                    {scan.hall for scan in HALL_DAY_SCANS} | {scan.hall for scan in HALL_MONTH_SCANS}
+                )
+                for hall in scan_halls:
+                    try:
+                        select_hall(page, hall)
+                    except Exception as hall_error:  # noqa: BLE001 - isolate per-hall failures
+                        print(f"{hall} 선택 실패: {hall_error}", file=sys.stderr)
+                        results[hall] = {"status": "unknown", "detail": f"홀 선택 실패: {hall_error}"}
+                        continue
+
+                    hall_scans = sorted(
+                        (scan for scan in HALL_DAY_SCANS if scan.hall == hall),
+                        key=lambda scan: (scan.year, scan.month, scan.day),
+                    ) + sorted(
+                        (scan for scan in HALL_MONTH_SCANS if scan.hall == hall),
+                        key=lambda scan: (scan.year, scan.month),
+                    )
+                    for scan in hall_scans:
+                        if isinstance(scan, HallDayScan):
+                            date_key = f"{scan.year:04d}-{scan.month:02d}-{scan.day:02d}"
+                            try:
+                                times = read_day_times(page, scan.year, scan.month, scan.day)
+                            except Exception as scan_error:  # noqa: BLE001 - isolate per-scan failures
+                                print(f"{hall} {date_key} 확인 실패: {scan_error}", file=sys.stderr)
+                                results[f"{hall} {date_key}"] = {
+                                    "status": "unknown",
+                                    "detail": f"확인 실패: {scan_error}",
+                                }
+                                continue
+                            if not times:
+                                results[f"{hall} {date_key}"] = {
+                                    "status": "unknown",
+                                    "detail": "시간대를 찾지 못했습니다.",
+                                }
+                            for time_str, status in sorted(times.items()):
+                                results[f"{hall} {date_key} {time_str}"] = {
+                                    "status": status,
+                                    "detail": status,
+                                }
+                        else:
+                            month_key = f"{scan.year:04d}-{scan.month:02d}"
+                            try:
+                                openings = scan_month_for_openings(page, scan.year, scan.month)
+                            except Exception as scan_error:  # noqa: BLE001 - isolate per-scan failures
+                                print(f"{hall} {month_key} 스캔 실패: {scan_error}", file=sys.stderr)
+                                results[f"{hall} {month_key}"] = {
+                                    "status": "unknown",
+                                    "detail": f"스캔 실패: {scan_error}",
+                                }
+                                continue
+                            for date_key, times in sorted(openings.items()):
+                                for time_str, status in sorted(times.items()):
+                                    results[f"{hall} {date_key} {time_str}"] = {
+                                        "status": status,
+                                        "detail": status,
+                                    }
+
                 page.screenshot(path=ARTIFACT_DIR / "latest.png", full_page=True)
             except Exception:
                 try:
@@ -949,11 +1148,28 @@ def run() -> int:
             and previous.targets.get(key, {}).get("status") != "available"
         }
         status_labels = {"available": "예약가능", "unavailable": "예약마감"}
-        lines = "\n".join(
-            f"- {key}: {status_labels.get(result['status'], '확인불가')}"
-            + (" 🎉 신규!" if key in newly_available else "")
-            for key, result in sorted(results.items())
-        )
+
+        def format_line(key: str, result: dict[str, str]) -> str:
+            label = status_labels.get(result["status"], "확인불가")
+            flag = " 🎉 신규!" if key in newly_available else ""
+            return f"- {key}: {label}{flag}"
+
+        seocho_target_keys = {target.key for target in TARGETS + extra_targets}
+        other_halls = sorted({scan.hall for scan in HALL_DAY_SCANS} | {scan.hall for scan in HALL_MONTH_SCANS})
+        sections = []
+        seocho_lines = [format_line(k, results[k]) for k in sorted(results) if k in seocho_target_keys]
+        if seocho_lines:
+            sections.append(f"[{TARGET_HALL}]\n" + "\n".join(seocho_lines))
+        for hall in other_halls:
+            hall_lines = [
+                format_line(k, results[k])
+                for k in sorted(results)
+                if k == hall or k.startswith(f"{hall} ")
+            ]
+            if hall_lines:
+                sections.append(f"[{hall}]\n" + "\n".join(hall_lines))
+        lines = "\n\n".join(sections)
+
         if newly_available:
             header = "[삼성 웨딩 취소표 발견]"
         elif any(result["status"] == "unknown" for result in results.values()):
@@ -963,7 +1179,7 @@ def run() -> int:
             header = "[삼성 웨딩 모니터] 체크 완료"
         stamp = now.strftime("%m/%d %H:%M")
         try:
-            send_telegram(f"{header}\n서초사옥 ({stamp} KST)\n{lines}\n{APPLICATION_URL}")
+            send_telegram(cap_message(f"{header} ({stamp} KST)\n\n{lines}\n\n{APPLICATION_URL}"))
         except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
             print(f"상태 알림 전송 실패: {telegram_error}", file=sys.stderr)
         return 0

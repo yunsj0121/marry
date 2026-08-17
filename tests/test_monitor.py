@@ -1,7 +1,15 @@
 import pytest
 
 import marry.monitor as monitor
-from marry.monitor import MonitorState, Target, actions_run_url, build_error_message, parse_extra_targets
+from marry.monitor import (
+    MonitorState,
+    Target,
+    actions_run_url,
+    build_error_message,
+    cap_message,
+    classify_status,
+    parse_extra_targets,
+)
 
 
 def test_monitor_state_defaults_to_serializable_values() -> None:
@@ -71,6 +79,22 @@ def test_parse_extra_targets_rejects_bad_format(monkeypatch) -> None:
     monkeypatch.setenv("EXTRA_TARGETS", "not-a-date")
     with pytest.raises(RuntimeError):
         parse_extra_targets()
+
+
+def test_classify_status_handles_spaced_wording() -> None:
+    assert classify_status("17:00 예약 가능") == "available"
+    assert classify_status("17:00선택불가 17:00 예약마감") == "unavailable"
+    assert classify_status("완전히 다른 문구") == "unknown"
+
+
+def test_cap_message_truncates_long_text() -> None:
+    message = cap_message("a" * 100, limit=10)
+    assert len(message) == 10
+    assert message.endswith("...")
+
+
+def test_cap_message_leaves_short_text_untouched() -> None:
+    assert cap_message("short", limit=10) == "short"
 
 
 def test_diagnostic_tee_captures_lines_and_passes_through() -> None:
