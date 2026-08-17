@@ -21,6 +21,7 @@ LOGIN_URL = "https://s-wedding.samsungcard.com/login/UWDDWSCO02M1.jsp"
 APPLICATION_URL = "https://s-wedding.samsungcard.com/internal/add-apply/UWDDWSWH04M0.jsp"
 TARGET_HALL = "서초사옥"
 HALL_FINANCE = "삼성금융연수원"
+KNOWN_HALLS = [TARGET_HALL, "삼성E&A", HALL_FINANCE]
 STATE_PATH = Path("state/availability.json")
 ARTIFACT_DIR = Path("artifacts")
 KST = ZoneInfo("Asia/Seoul")
@@ -738,16 +739,18 @@ def select_hall(page: Page, hall_name: str = TARGET_HALL) -> None:
     if has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$")):
         return
 
+    # 전략 1: 네이티브 <select>. 커스텀 UI가 시각적으로는 select를 숨기고(opacity:0 등)
+    # 자체 박스로 대신 보여주는 경우가 흔해서 is_visible() 여부와 상관없이 시도한다.
     native_selects = page.locator("select")
+    print(f"홀 선택 - 네이티브 select 개수: {native_selects.count()}")
     for index in range(native_selects.count()):
         select_el = native_selects.nth(index)
         try:
-            if not select_el.is_visible():
-                continue
             select_el.select_option(label=hall_name, timeout=2_000)
         except PlaywrightTimeoutError:
             continue
-        except Exception:  # noqa: BLE001 - label option may not exist on this element
+        except Exception as select_error:  # noqa: BLE001 - label option may not exist on this element
+            print(f"홀 선택 - select[{index}] select_option 실패: {select_error}")
             continue
         page.wait_for_timeout(300)
         close_calendar_notice(page)
@@ -755,13 +758,35 @@ def select_hall(page: Page, hall_name: str = TARGET_HALL) -> None:
         if has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$")):
             return
 
+    # 전략 2: 현재 선택된 홀 이름이 표시된 박스를 직접 클릭해 커스텀 드롭다운을 연다.
+    for known_hall in KNOWN_HALLS:
+        try:
+            current_box = page.get_by_text(re.compile(rf"^\s*{re.escape(known_hall)}\s*$")).first
+            if not current_box.count() or not current_box.is_visible():
+                continue
+            current_box.click(timeout=2_000)
+            page.wait_for_timeout(300)
+            opened = has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$"))
+            print(f"홀 선택 - '{known_hall}' 박스 클릭 후 '{hall_name}' 표시={opened}")
+            if click_text(page, [hall_name], timeout=3_000):
+                close_calendar_notice(page)
+                page.wait_for_timeout(500)
+                return
+        except PlaywrightTimeoutError:
+            continue
+
+    # 전략 3: 웨딩홀/선택 문구를 포함한 일반적인 컨테이너를 클릭해 드롭다운을 연다.
     selectors = ["select", "[role=combobox]", "button", ".select", ".dropdown"]
     for frame in page.frames:
         for selector in selectors:
             try:
-                frame.locator(selector).filter(
-                    has_text=re.compile("웨딩홀|사옥|선택")
-                ).first.click(timeout=2_000)
+                candidate = frame.locator(selector).filter(has_text=re.compile("웨딩홀|사옥|선택")).first
+                if not candidate.count():
+                    continue
+                candidate.click(timeout=2_000)
+                page.wait_for_timeout(300)
+                opened = has_visible_text(page, re.compile(rf"^\s*{re.escape(hall_name)}\s*$"))
+                print(f"홀 선택 - selector={selector!r} 클릭 후 '{hall_name}' 표시={opened}")
                 if click_text(page, [hall_name], timeout=3_000):
                     close_calendar_notice(page)
                     page.wait_for_timeout(500)
