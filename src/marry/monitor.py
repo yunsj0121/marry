@@ -846,21 +846,23 @@ def run() -> int:
         current = MonitorState(run_status="ok", checked_at=checked_at, targets=results)
         save_state(current)
         print(json.dumps(asdict(current), ensure_ascii=False))
-        newly_available = [
+        newly_available = {
             key
             for key, result in results.items()
             if result["status"] == "available"
             and previous.targets.get(key, {}).get("status") != "available"
-        ]
-        if newly_available:
-            lines = "\n".join(f"- {key}: {results[key]['detail']}" for key in newly_available)
-            try:
-                send_telegram(
-                    "[삼성 웨딩 취소표 발견]\n"
-                    f"서초사옥\n{lines}\n{APPLICATION_URL}"
-                )
-            except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
-                print(f"취소표 알림 전송 실패: {telegram_error}", file=sys.stderr)
+        }
+        status_labels = {"available": "예약가능", "unavailable": "예약마감"}
+        lines = "\n".join(
+            f"- {key}: {status_labels.get(result['status'], '확인불가')}"
+            + (" 🎉 신규!" if key in newly_available else "")
+            for key, result in sorted(results.items())
+        )
+        header = "[삼성 웨딩 취소표 발견]" if newly_available else "[삼성 웨딩 모니터] 체크 완료"
+        try:
+            send_telegram(f"{header}\n서초사옥\n{lines}\n{APPLICATION_URL}")
+        except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
+            print(f"상태 알림 전송 실패: {telegram_error}", file=sys.stderr)
         return 0
     except Exception as exc:  # noqa: BLE001 - workflow must persist diagnostics
         error = f"{type(exc).__name__}: {exc}"
