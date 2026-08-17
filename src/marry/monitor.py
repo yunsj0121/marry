@@ -805,9 +805,10 @@ def select_hall(page: Page, hall_name: str = TARGET_HALL) -> None:
         print(f"홀 선택 - '{known_hall}' 박스 클릭 후 '{hall_name}' 표시={opened}")
         if click_hall_option(page, hall_name):
             close_calendar_notice(page)
-            # 홀을 바꾸면 그 홀의 달력 데이터를 새로 불러오는 것으로 보인다.
-            # 날짜 버튼이 채워질 시간을 넉넉히 준다.
-            page.wait_for_timeout(1_500)
+            page.wait_for_timeout(500)
+            # 홀을 바꾸면 그 홀의 달력 데이터를 새로 불러오는 것으로 보여, 표시된
+            # 월이 안정될 때까지 기다린 뒤 진행한다.
+            wait_for_calendar_stable(page)
             return
 
     # 전략 2: 웨딩홀/선택 문구를 포함한 일반적인 컨테이너를 클릭해 드롭다운을 연다.
@@ -878,6 +879,21 @@ def month_text(page: Page) -> str:
     return match.inner_text(timeout=5_000)
 
 
+def wait_for_calendar_stable(page: Page, attempts: int = 8, interval_ms: int = 400) -> None:
+    """홀 전환 직후 달력이 비동기로 계속 월을 바꾸는 것처럼 보이는 경우가 있어,
+    연속 두 번 같은 월이 읽힐 때까지 기다린 뒤 진행한다."""
+    previous = None
+    for _ in range(attempts):
+        try:
+            current = month_text(page)
+        except PlaywrightTimeoutError:
+            current = None
+        if current is not None and current == previous:
+            return
+        previous = current
+        page.wait_for_timeout(interval_ms)
+
+
 def close_calendar_notice(page: Page) -> None:
     notice = page.get_by_text("안내", exact=True)
     for index in range(notice.count()):
@@ -906,66 +922,63 @@ def close_calendar_notice(page: Page) -> None:
             return
 
 
-def go_to_target_month(page: Page, target_year: int, target_month: int) -> bool:
-    """목표 월에 도달하면 True. 그 홀이 목표 월에 운영을 안 해서 달력이 다음
-    "운영 월"로 건너뛰는 경우(휴무로 추정) False를 반환한다 - 오류가 아니라
-    그 달은 예약 불가라는 정상적인 신호로 다룬다."""
+def click_month_nav(page: Page, month_label: Locator, current_text: str, direction: str) -> bool:
+    """달력의 이전/다음 달 버튼을 찾아 클릭한다. direction은 'next' 또는 'prev'."""
+    parent = month_label.locator("xpath=..")
+    nav_buttons = parent.locator("button, a, [role=button]")
+    count = nav_buttons.count()
+    order = range(count - 1, -1, -1) if direction == "next" else range(count)
+    for index in order:
+        try:
+            nav_buttons.nth(index).click(timeout=1_500)
+            return True
+        except PlaywrightTimeoutError:
+            continue
+
+    keyword = "다음" if direction == "next" else "이전"
+    arrow = ">" if direction == "next" else "<"
+    css_class = ".next" if direction == "next" else ".prev"
+    for selector in [f"[aria-label*={keyword}]", f"[title*={keyword}]", css_class, f"button:has-text('{arrow}')"]:
+        try:
+            page.locator(selector).first.click(timeout=1_500)
+            return True
+        except PlaywrightTimeoutError:
+            continue
+
+    label_box = month_label.bounding_box()
+    if label_box:
+        offset = label_box["width"] + 28 if direction == "next" else -28
+        page.mouse.click(label_box["x"] + offset, label_box["y"] + label_box["height"] / 2)
+        page.wait_for_timeout(400)
+        try:
+            return month_text(page) != current_text
+        except PlaywrightTimeoutError:
+            return False
+    return False
+
+
+def go_to_target_month(page: Page, target_year: int, target_month: int) -> None:
+    """목표 월로 이동한다. 홀 전환 직후 달력이 비동기로 계속 갱신되며 엉뚱한 달에
+    멈추는 경우가 있어(자동 스킵 UX로 추정), 목표를 지나쳤으면 "이전달" 버튼으로
+    되돌아온다."""
     close_calendar_notice(page)
-    for _ in range(24):
+    wait_for_calendar_stable(page)
+    for _ in range(36):
         current = month_text(page)
         found = re.search(r"(\d{4})년\s*(\d{1,2})월", current)
         if not found:
             raise RuntimeError("달력의 연월을 읽지 못했습니다.")
         year, month = map(int, found.groups())
         if (year, month) == (target_year, target_month):
-            return True
-        if (year, month) > (target_year, target_month):
-            print(
-                f"목표 월을 건너뛴 것으로 보임(운영하지 않는 달로 추정): "
-                f"목표={target_year}년 {target_month}월, 도달={year}년 {month}월"
-            )
-            return False
+            return
 
+        direction = "next" if (year, month) < (target_year, target_month) else "prev"
         month_label = page.get_by_text(re.compile(rf"{year}년\s*{month}월")).first
-        parent = month_label.locator("xpath=..")
-        next_buttons = parent.locator("button, a, [role=button]")
-        clicked = False
-        for index in range(next_buttons.count() - 1, -1, -1):
-            try:
-                next_buttons.nth(index).click(timeout=1_500)
-                clicked = True
-                break
-            except PlaywrightTimeoutError:
-                continue
-        if not clicked:
-            for selector in [
-                "[aria-label*=다음]",
-                "[title*=다음]",
-                ".next",
-                "button:has-text('>')",
-            ]:
-                try:
-                    page.locator(selector).first.click(timeout=1_500)
-                    clicked = True
-                    break
-                except PlaywrightTimeoutError:
-                    continue
-        if not clicked:
-            label_box = month_label.bounding_box()
-            if label_box:
-                page.mouse.click(
-                    label_box["x"] + label_box["width"] + 28,
-                    label_box["y"] + label_box["height"] / 2,
-                )
-                page.wait_for_timeout(400)
-                try:
-                    clicked = month_text(page) != current
-                except PlaywrightTimeoutError:
-                    clicked = False
-        if not clicked:
-            raise RuntimeError("달력의 다음 달 버튼을 찾지 못했습니다.")
+        if not click_month_nav(page, month_label, current, direction):
+            label = "다음" if direction == "next" else "이전"
+            raise RuntimeError(f"달력의 {label} 달 버튼을 찾지 못했습니다.")
         page.wait_for_timeout(400)
-    raise RuntimeError("24개월 안에서 목표 월을 찾지 못했습니다.")
+    raise RuntimeError("36개월 안에서 목표 월을 찾지 못했습니다.")
 
 
 def closest_status_container(time_locator: Locator) -> Locator:
@@ -990,9 +1003,8 @@ def classify_status(detail: str) -> str:
     return "unknown"
 
 
-def click_day_button(page: Page, year: int, month: int, day: int) -> Locator | None:
-    if not go_to_target_month(page, year, month):
-        return None
+def click_day_button(page: Page, year: int, month: int, day: int) -> Locator:
+    go_to_target_month(page, year, month)
     print(f"목표 월 도달: {month_text(page)}")
 
     target_date = f"{year:04d}{month:02d}{day:02d}"
@@ -1021,8 +1033,7 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> Locator | N
 
 
 def read_target_status(page: Page, target: Target) -> tuple[str, str]:
-    if click_day_button(page, target.year, target.month, target.day) is None:
-        return "unavailable", "해당 월은 운영하지 않는 것으로 추정(달력에서 건너뜀)"
+    click_day_button(page, target.year, target.month, target.day)
 
     time_locator = page.get_by_text(target.time, exact=True).first
     time_locator.wait_for(state="visible", timeout=5_000)
@@ -1059,16 +1070,13 @@ def read_all_times_for_day(page: Page) -> dict[str, str]:
 
 
 def read_day_times(page: Page, year: int, month: int, day: int) -> dict[str, str]:
-    if click_day_button(page, year, month, day) is None:
-        return {}
+    click_day_button(page, year, month, day)
     return read_all_times_for_day(page)
 
 
 def scan_month_day_labels(page: Page, year: int, month: int) -> dict[int, str]:
-    """이번 달 달력에서 각 날짜 버튼의 표시 텍스트(마감 배지 포함)를 클릭 없이 읽는다.
-    그 달을 운영하지 않아 달력이 건너뛰면 빈 dict를 반환한다."""
-    if not go_to_target_month(page, year, month):
-        return {}
+    """이번 달 달력에서 각 날짜 버튼의 표시 텍스트(마감 배지 포함)를 클릭 없이 읽는다."""
+    go_to_target_month(page, year, month)
     prefix = f"{year:04d}{month:02d}"
     day_buttons = page.locator(f'button[data-date^="{prefix}"]')
     labels: dict[int, str] = {}
@@ -1086,12 +1094,9 @@ def scan_month_day_labels(page: Page, year: int, month: int) -> dict[int, str]:
     return labels
 
 
-def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict[str, str]] | None:
+def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict[str, str]]:
     """이번 달 전체를 훑어, 마감 배지가 없는 날짜만 클릭해 실제 시간대 상태를 확인한다.
-    달력에 이미 마감으로 표시된 날짜는 클릭하지 않아 실행 시간을 아낀다.
-    그 달을 운영하지 않아 달력이 건너뛰면 None을 반환한다."""
-    if not go_to_target_month(page, year, month):
-        return None
+    달력에 이미 마감으로 표시된 날짜는 클릭하지 않아 실행 시간을 아낀다."""
     labels = scan_month_day_labels(page, year, month)
     results: dict[str, dict[str, str]] = {}
     for day, label in sorted(labels.items()):
@@ -1203,8 +1208,8 @@ def run() -> int:
                                 continue
                             if not times:
                                 results[f"{hall} {date_key}"] = {
-                                    "status": "unavailable",
-                                    "detail": "해당 월은 운영하지 않는 것으로 추정(달력에서 건너뜀)",
+                                    "status": "unknown",
+                                    "detail": "시간대를 찾지 못했습니다.",
                                 }
                             for time_str, status in sorted(times.items()):
                                 results[f"{hall} {date_key} {time_str}"] = {
@@ -1220,12 +1225,6 @@ def run() -> int:
                                 results[f"{hall} {month_key}"] = {
                                     "status": "unknown",
                                     "detail": f"스캔 실패: {scan_error}",
-                                }
-                                continue
-                            if openings is None:
-                                results[f"{hall} {month_key}"] = {
-                                    "status": "unavailable",
-                                    "detail": "해당 월은 운영하지 않는 것으로 추정(달력에서 건너뜀)",
                                 }
                                 continue
                             for date_key, times in sorted(openings.items()):
