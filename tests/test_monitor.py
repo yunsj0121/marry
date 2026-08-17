@@ -1,5 +1,7 @@
+import pytest
+
 import marry.monitor as monitor
-from marry.monitor import MonitorState, Target, actions_run_url, build_error_message
+from marry.monitor import MonitorState, Target, actions_run_url, build_error_message, parse_extra_targets
 
 
 def test_monitor_state_defaults_to_serializable_values() -> None:
@@ -46,6 +48,29 @@ def test_build_error_message_stays_within_telegram_limit(monkeypatch) -> None:
         monitor.DIAGNOSTIC_LINES.append(f"{index}:" + "가" * 400)
     message = build_error_message("RuntimeError: " + "나" * 2_000)
     assert len(message) <= monitor.TELEGRAM_LIMIT
+
+
+def test_parse_extra_targets_returns_empty_when_unset(monkeypatch) -> None:
+    monkeypatch.delenv("EXTRA_TARGETS", raising=False)
+    assert parse_extra_targets() == []
+
+
+def test_parse_extra_targets_parses_comma_separated_list(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "EXTRA_TARGETS", "2027-08-29 11:00, 2027-08-29 13:00,2027-08-29 17:00"
+    )
+    targets = parse_extra_targets()
+    assert [t.key for t in targets] == [
+        "2027-08-29 11:00",
+        "2027-08-29 13:00",
+        "2027-08-29 17:00",
+    ]
+
+
+def test_parse_extra_targets_rejects_bad_format(monkeypatch) -> None:
+    monkeypatch.setenv("EXTRA_TARGETS", "not-a-date")
+    with pytest.raises(RuntimeError):
+        parse_extra_targets()
 
 
 def test_diagnostic_tee_captures_lines_and_passes_through() -> None:

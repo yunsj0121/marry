@@ -10,6 +10,11 @@ on:
     - cron: "7,37 7-22 * * *"
       timezone: "Asia/Seoul"
   workflow_dispatch:
+    inputs:
+      extra_targets:
+        description: "임시로 한 번만 확인할 타깃 (예: 2027-08-29 11:00,2027-08-29 13:00)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -27,6 +32,7 @@ jobs:
       SAMSUNG_WEDDING_EMPLOYEE_PASSWORD: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_PASSWORD }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      EXTRA_TARGETS: ${{ github.event.inputs.extra_targets }}
 
     steps:
       - uses: actions/checkout@v4

@@ -50,6 +50,25 @@ TARGETS: list[Target] = [
 ]
 
 
+def parse_extra_targets() -> list[Target]:
+    """EXTRA_TARGETS 환경변수("YYYY-MM-DD HH:MM,YYYY-MM-DD HH:MM")로 지정된
+    타깃을 파싱한다. TARGETS를 건드리지 않고 이번 실행에서만 임시로 확인할 때 쓴다."""
+    raw = os.getenv("EXTRA_TARGETS", "").strip()
+    if not raw:
+        return []
+    extras: list[Target] = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        match = re.match(r"^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}:\d{2})$", chunk)
+        if not match:
+            raise RuntimeError(f"EXTRA_TARGETS 형식이 올바르지 않습니다: {chunk!r}")
+        year, month, day, time_str = match.groups()
+        extras.append(Target(int(year), int(month), int(day), time_str))
+    return extras
+
+
 @dataclass
 class MonitorState:
     run_status: str
@@ -899,9 +918,13 @@ def run() -> int:
             try:
                 login(page, employee_id, password)
                 select_hall(page)
+                extra_targets = parse_extra_targets()
+                if extra_targets:
+                    print(f"임시 확인 타깃: {[t.key for t in extra_targets]}")
                 results: dict[str, dict[str, str]] = {}
                 for target in sorted(
-                    TARGETS, key=lambda item: (item.year, item.month, item.day, item.time)
+                    TARGETS + extra_targets,
+                    key=lambda item: (item.year, item.month, item.day, item.time),
                 ):
                     status, detail = read_target_status(page, target)
                     results[target.key] = {"status": status, "detail": detail}
