@@ -1116,6 +1116,37 @@ def read_all_times_for_day(page: Page) -> dict[str, str]:
     return results
 
 
+def click_available_time(page: Page, time_text: str) -> bool:
+    """현재 열려 있는 날짜 상세 패널에서 특정 시간대를 찾아 클릭한다.
+    실제로 "예약가능" 상태인 시간대만 클릭한다 - 마감인 시간대를 실수로 클릭하지
+    않도록 클릭 전에 상태를 다시 확인한다. 반환값: 클릭 성공 여부."""
+    time_locators = page.get_by_text(re.compile(rf"^\s*{re.escape(time_text)}\s*$"))
+    for index in range(time_locators.count()):
+        loc = time_locators.nth(index)
+        try:
+            if not loc.is_visible():
+                continue
+        except PlaywrightTimeoutError:
+            continue
+        container = closest_status_container(loc)
+        try:
+            detail = re.sub(r"\s+", " ", container.inner_text(timeout=1_000)).strip()
+        except PlaywrightTimeoutError:
+            continue
+        if classify_status(detail) != "available":
+            print(f"{time_text} 클릭 안 함 - 상태가 예약가능이 아님: {detail!r}")
+            return False
+        for candidate in [loc, container]:
+            try:
+                candidate.click(timeout=2_000)
+                print(f"{time_text} 클릭 성공 (상태: {detail!r})")
+                return True
+            except PlaywrightTimeoutError:
+                continue
+    print(f"{time_text} 시간대를 찾지 못함")
+    return False
+
+
 def read_day_times(page: Page, year: int, month: int, day: int) -> dict[str, str]:
     if click_day_button(page, year, month, day) == "closed":
         return {"전체": "unavailable"}

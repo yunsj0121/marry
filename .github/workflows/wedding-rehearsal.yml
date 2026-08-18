@@ -1,0 +1,63 @@
+name: Wedding application rehearsal
+# 수동 실행 전용. 예약(스케줄) 트리거는 절대 두지 않는다 - 실제 신청 화면에
+# 진입하는 민감한 동작이라 사람이 매번 명시적으로 트리거해야 한다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "목표 연도 (예: 2027)"
+        required: true
+      month:
+        description: "목표 월 (예: 8)"
+        required: true
+      day:
+        description: "목표 일 (예: 29)"
+        required: true
+      time:
+        description: "목표 시간 (예: 17:00)"
+        required: true
+      hall:
+        description: "홀 이름 (비우면 기본 서초사옥)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SAMSUNG_WEDDING_EMPLOYEE_ID: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_ID }}
+      SAMSUNG_WEDDING_EMPLOYEE_PASSWORD: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_PASSWORD }}
+      REHEARSE_YEAR: ${{ github.event.inputs.year }}
+      REHEARSE_MONTH: ${{ github.event.inputs.month }}
+      REHEARSE_DAY: ${{ github.event.inputs.day }}
+      REHEARSE_TIME: ${{ github.event.inputs.time }}
+      REHEARSE_HALL: ${{ github.event.inputs.hall }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Ensure OCR engine
+        timeout-minutes: 2
+        continue-on-error: true
+        run: command -v tesseract || (sudo apt-get update && sudo apt-get install -y tesseract-ocr)
+      - name: Install project
+        run: pip install -e .
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Run rehearsal
+        run: marry-rehearse
+      - name: Upload rehearsal artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wedding-rehearsal-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -13,6 +13,7 @@ dependencies = [
 [project.scripts]
 marry-apply = "marry.apply:main"
 marry-monitor = "marry.monitor:main"
+marry-rehearse = "marry.rehearse:main"
 
 [tool.ruff]
 line-length = 100
