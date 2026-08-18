@@ -24,21 +24,53 @@ from marry.monitor import (
 )
 
 
+def dump_selected_day(page, label: str) -> None:
+    """button[data-date] 중 실제로 "선택됨/활성" class가 붙은 날짜를 정확히 찾는다.
+    body 전체 텍스트 덤프는 접근성 라벨과 숫자가 뒤섞여 어느 날짜가 진짜
+    선택됐는지 구분이 안 되므로, data-date 속성과 class를 직접 읽는다."""
+    buttons = page.locator("button[data-date]")
+    total = buttons.count()
+    entries = []
+    for index in range(total):
+        button = buttons.nth(index)
+        date_attr = button.get_attribute("data-date") or ""
+        class_attr = button.get_attribute("class") or ""
+        if "sel" in class_attr or "active" in class_attr or "on" in class_attr:
+            entries.append(f"{date_attr}(class={class_attr!r})")
+    print(f"[{label}] 선택된 것으로 보이는 날짜 버튼(총 {total}개 중): {entries}")
+
+
+def dump_clickable_elements(page, label: str) -> None:
+    """다음 단계로 넘어가는 버튼을 찾기 위해, 보이는 클릭 가능 요소의 텍스트를 나열한다."""
+    clickable = page.locator("button, a, [role=button], input[type=submit], input[type=button]")
+    labels = []
+    for index in range(min(clickable.count(), 80)):
+        element = clickable.nth(index)
+        try:
+            if not element.is_visible():
+                continue
+            text = re.sub(r"\s+", " ", element.inner_text(timeout=300)).strip()
+            if not text:
+                text = element.get_attribute("value") or element.get_attribute("aria-label") or ""
+            if text:
+                labels.append(text)
+        except Exception:  # noqa: BLE001
+            continue
+    print(f"[{label}] 보이는 클릭가능요소({len(labels)}개): {labels}")
+
+
 def dump_screen(page, label: str) -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     screenshot_path = ARTIFACT_DIR / f"rehearsal-{label}.png"
     page.screenshot(path=screenshot_path, full_page=True)
     print(f"[{label}] URL={page.url}")
+    dump_selected_day(page, label)
+    dump_clickable_elements(page, label)
     try:
         body_text = re.sub(r"\s+", " ", page.locator("body").inner_text(timeout=2_000)).strip()
-        print(f"[{label}] 본문 텍스트(최대 2000자): {body_text[:2000]}")
+        print(f"[{label}] 본문 텍스트(최대 1500자): {body_text[:1500]}")
     except Exception as exc:  # noqa: BLE001 - 진단 실패는 무시하고 계속 진행
         print(f"[{label}] 본문 텍스트 추출 실패: {exc}", file=sys.stderr)
-    try:
-        html = page.evaluate("() => document.body.innerHTML")
-        print(f"[{label}] body HTML(최대 4000자): {html[:4000]}")
-    except Exception as exc:  # noqa: BLE001
-        print(f"[{label}] HTML 추출 실패: {exc}", file=sys.stderr)
 
 
 def main() -> None:
