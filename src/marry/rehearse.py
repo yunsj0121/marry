@@ -200,6 +200,57 @@ def dump_info_form_fields(page, label: str) -> None:
             print(f"[{label}] '{keyword}' {levels_up}단계 상위 HTML(최대 1200자): {html[:1200]}")
 
 
+def fill_applicant_info(page) -> dict[str, str]:
+    """개인정보 필드를 환경변수 값으로 채운다. 실제 값(생년월일/이름/전화번호 등)은
+    절대 로그에 출력하지 않고, 필드별 성공/실패 여부만 반환한다."""
+    results: dict[str, str] = {}
+
+    def fill_text(selector: str, value: str, field_name: str) -> None:
+        if not value:
+            results[field_name] = "값 없음(건너뜀)"
+            return
+        loc = page.locator(selector)
+        if not loc.count():
+            results[field_name] = "요소를 찾지 못함"
+            return
+        try:
+            loc.first.fill(value, timeout=2_000)
+            actual = loc.first.input_value(timeout=1_000)
+            results[field_name] = "성공" if actual == value else "값이 기대와 다름(포맷터가 값을 바꿨을 수 있음)"
+        except PlaywrightTimeoutError:
+            results[field_name] = "채우기 실패(타임아웃)"
+
+    fill_text("#wedgAplcnsBird", os.getenv("APPLICANT_BIRTHDATE_YYYYMMDD", "").strip(), "생년월일")
+    fill_text("#wedgAplcnsDeptNm", os.getenv("APPLICANT_DEPARTMENT", "").strip(), "부서명")
+    fill_text("#wedgAplcnsEmadre", os.getenv("APPLICANT_EMAIL_LOCAL", "").strip(), "이메일")
+    fill_text("#wedgAplcnsMpnoeB", os.getenv("APPLICANT_PHONE_SUFFIX", "").strip(), "휴대전화번호")
+    fill_text("#wedgAplcRlpplFnm1", os.getenv("GROOM_NAME", "").strip(), "신랑 성명")
+    fill_text("#wedgAplcRlpplFnm2", os.getenv("BRIDE_NAME", "").strip(), "신부 성명")
+
+    role = os.getenv("APPLICANT_ROLE", "").strip()
+    role_id = {"부모": "fi_rd_parent", "신랑": "fi_rd_groom", "신부": "fi_rd_bride"}.get(role)
+    if role_id:
+        try:
+            page.locator(f'label[for="{role_id}"]').first.click(timeout=2_000)
+            results["구분"] = "성공"
+        except PlaywrightTimeoutError:
+            results["구분"] = "클릭 실패(타임아웃)"
+    else:
+        results["구분"] = "값 없음(건너뜀)"
+
+    print(f"[07-info-form-filled] 필드 채우기 결과(값 자체는 개인정보라 표시 안 함): {results}")
+    return results
+
+
+def capture_screen_only(page, label: str) -> None:
+    """텍스트 덤프 없이 스크린샷만 남긴다 - 이 시점 화면에는 실제 개인정보가
+    입력되어 있어 로그에 텍스트로 남기지 않기 위함."""
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    screenshot_path = ARTIFACT_DIR / f"rehearsal-{label}.png"
+    page.screenshot(path=screenshot_path, full_page=True)
+    print(f"[{label}] URL={page.url} (개인정보 노출 방지를 위해 텍스트 덤프는 생략, 스크린샷만 저장)")
+
+
 def dump_screen(page, label: str, time_text: str | None = None) -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     screenshot_path = ARTIFACT_DIR / f"rehearsal-{label}.png"
@@ -266,6 +317,25 @@ def main() -> None:
                             "동의 단계 '다음' 클릭 완료 - 03 정보 입력으로 보이는 화면을 남겼습니다. "
                             "정보입력/최종제출은 진행하지 않았습니다."
                         )
+
+                        personal_env_keys = [
+                            "APPLICANT_BIRTHDATE_YYYYMMDD",
+                            "APPLICANT_DEPARTMENT",
+                            "APPLICANT_EMAIL_LOCAL",
+                            "APPLICANT_PHONE_SUFFIX",
+                            "GROOM_NAME",
+                            "BRIDE_NAME",
+                            "APPLICANT_ROLE",
+                        ]
+                        if any(os.getenv(key) for key in personal_env_keys):
+                            fill_applicant_info(page)
+                            page.wait_for_timeout(500)
+                            capture_screen_only(page, "07-after-info-fill")
+                            print(
+                                "정보 입력 필드까지 채웠습니다. '신청' 버튼은 누르지 않았습니다 - 여기서 멈춥니다."
+                            )
+                        else:
+                            print("개인정보 환경변수가 없어 정보 입력 필드는 채우지 않았습니다.")
                     else:
                         print("동의 단계 '다음' 버튼을 찾지 못해 클릭하지 않았습니다.")
                 else:

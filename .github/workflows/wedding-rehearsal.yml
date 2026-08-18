@@ -37,6 +37,13 @@ jobs:
       REHEARSE_DAY: ${{ github.event.inputs.day }}
       REHEARSE_TIME: ${{ github.event.inputs.time }}
       REHEARSE_HALL: ${{ github.event.inputs.hall }}
+      APPLICANT_BIRTHDATE_YYYYMMDD: ${{ secrets.APPLICANT_BIRTHDATE_YYYYMMDD }}
+      APPLICANT_DEPARTMENT: ${{ secrets.APPLICANT_DEPARTMENT }}
+      APPLICANT_EMAIL_LOCAL: ${{ secrets.APPLICANT_EMAIL_LOCAL }}
+      APPLICANT_PHONE_SUFFIX: ${{ secrets.APPLICANT_PHONE_SUFFIX }}
+      GROOM_NAME: ${{ secrets.GROOM_NAME }}
+      BRIDE_NAME: ${{ secrets.BRIDE_NAME }}
+      APPLICANT_ROLE: ${{ secrets.APPLICANT_ROLE }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
