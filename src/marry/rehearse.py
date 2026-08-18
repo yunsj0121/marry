@@ -41,12 +41,17 @@ def dump_selected_day(page, label: str) -> None:
 
 
 def dump_clickable_elements(page, label: str) -> None:
-    """다음 단계로 넘어가는 버튼을 찾기 위해, 보이는 클릭 가능 요소의 텍스트를 나열한다."""
+    """다음 단계로 넘어가는 버튼을 찾기 위해, 보이는 클릭 가능 요소의 텍스트를 나열한다.
+    달력 날짜 셀(button[data-date])은 최대 31개나 차지해 진짜 관심있는 버튼을
+    밀어낼 수 있어 제외한다."""
     clickable = page.locator("button, a, [role=button], input[type=submit], input[type=button]")
+    total = clickable.count()
     labels = []
-    for index in range(min(clickable.count(), 80)):
+    for index in range(total):
         element = clickable.nth(index)
         try:
+            if element.get_attribute("data-date") is not None:
+                continue
             if not element.is_visible():
                 continue
             text = re.sub(r"\s+", " ", element.inner_text(timeout=300)).strip()
@@ -56,7 +61,23 @@ def dump_clickable_elements(page, label: str) -> None:
                 labels.append(text)
         except Exception:  # noqa: BLE001
             continue
-    print(f"[{label}] 보이는 클릭가능요소({len(labels)}개): {labels}")
+    print(f"[{label}] 날짜 셀 제외 클릭가능요소(전체 {total}개 중 {len(labels)}개): {labels}")
+
+    for keyword in ["다음", "신청", "확인", "선택완료", "예약", "동의"]:
+        matches = page.get_by_text(re.compile(re.escape(keyword)))
+        count = matches.count()
+        if not count:
+            continue
+        visible_texts = []
+        for index in range(count):
+            candidate = matches.nth(index)
+            try:
+                if candidate.is_visible():
+                    visible_texts.append(re.sub(r"\s+", " ", candidate.inner_text(timeout=300)).strip())
+            except Exception:  # noqa: BLE001
+                continue
+        if visible_texts:
+            print(f"[{label}] '{keyword}' 포함 보이는 요소({len(visible_texts)}개): {visible_texts}")
 
 
 def dump_screen(page, label: str) -> None:
