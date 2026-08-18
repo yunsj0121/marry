@@ -1,6 +1,6 @@
 {
-  "run_status": "ok",
-  "checked_at": "2026-08-18T13:45:13+09:00",
+  "run_status": "error",
+  "checked_at": "2026-08-18T14:37:58+09:00",
   "targets": {
     "2027-08-28 17:00": {
       "status": "unavailable",
@@ -23,5 +23,5 @@
       "detail": "unavailable"
     }
   },
-  "error": ""
+  "error": "RuntimeError: 회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다."
 }
