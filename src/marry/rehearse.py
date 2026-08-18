@@ -11,6 +11,7 @@ import os
 import re
 import sys
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from marry.monitor import (
@@ -98,6 +99,64 @@ def dump_time_area_html(page, label: str, time_text: str) -> None:
         print(f"[{label}] '{time_text}' {levels_up}단계 상위 HTML(최대 2500자): {html[:2500]}")
 
 
+def dump_checkbox_markup(page, label: str) -> None:
+    """동의 체크박스 실제 마크업을 확인한다. 시간대 라디오와 같은 위젯 패턴(input+label)인지
+    먼저 진단하기 위해, 페이지의 모든 checkbox input과 "전체 동의" 주변 HTML을 덤프한다."""
+    checkboxes = page.locator("input[type=checkbox]")
+    total = checkboxes.count()
+    entries = []
+    for index in range(total):
+        cb = checkboxes.nth(index)
+        entries.append(
+            {
+                "id": cb.get_attribute("id"),
+                "name": cb.get_attribute("name"),
+                "checked": cb.get_attribute("checked"),
+            }
+        )
+    print(f"[{label}] 체크박스 input 목록(총 {total}개): {entries}")
+
+    loc = page.get_by_text(re.compile(r"^\s*전체\s*동의\s*$")).first
+    if not loc.count():
+        print(f"[{label}] '전체 동의' 요소를 찾지 못해 HTML 덤프 불가")
+        return
+    for levels_up in [2, 3, 4]:
+        ancestor = loc.locator("xpath=" + "/.." * levels_up)
+        try:
+            html = ancestor.evaluate("el => el.outerHTML")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[{label}] 전체동의 {levels_up}단계 상위 HTML 추출 실패: {exc}", file=sys.stderr)
+            continue
+        print(f"[{label}] 전체동의 {levels_up}단계 상위 HTML(최대 2000자): {html[:2000]}")
+
+
+def check_all_agreements(page) -> bool:
+    """"전체 동의" 체크박스를 클릭해 모든 동의 항목을 체크한다.
+    실제 신청/정보입력은 별도 단계이며 이 함수는 동의 체크만 담당한다."""
+    checkboxes = page.locator("input[type=checkbox]")
+    total = checkboxes.count()
+    for index in range(total):
+        cb = checkboxes.nth(index)
+        cb_id = (cb.get_attribute("id") or "").lower()
+        cb_name = (cb.get_attribute("name") or "").lower()
+        if "all" in cb_id or "all" in cb_name or "tot" in cb_id or "tot" in cb_name:
+            raw_id = cb.get_attribute("id") or ""
+            label = page.locator(f'label[for="{raw_id}"]') if raw_id else None
+            for candidate in ([label, cb] if label is not None else [cb]):
+                try:
+                    candidate.first.click(timeout=2_000)
+                    print(f"전체 동의 체크박스 클릭 성공 (id={raw_id!r})")
+                    return True
+                except PlaywrightTimeoutError:
+                    continue
+
+    if click_text(page, ["전체 동의"], timeout=2_000):
+        print("전체 동의 텍스트 클릭 성공(폴백)")
+        return True
+    print("전체 동의 체크박스를 클릭하지 못함")
+    return False
+
+
 def dump_screen(page, label: str, time_text: str | None = None) -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     screenshot_path = ARTIFACT_DIR / f"rehearsal-{label}.png"
@@ -151,10 +210,26 @@ def main() -> None:
                 page.wait_for_timeout(1_500)
                 dump_screen(page, "03-after-next-click")
                 print("'다음' 버튼 클릭 완료 - 02 동의 단계로 보이는 화면을 남겼습니다.")
+
+                dump_checkbox_markup(page, "03-agreement-before-check")
+                if check_all_agreements(page):
+                    page.wait_for_timeout(500)
+                    dump_checkbox_markup(page, "04-agreement-after-check")
+                    if click_text(page, ["다음"], timeout=3_000):
+                        page.wait_for_timeout(1_500)
+                        dump_screen(page, "05-after-agreement-next-click")
+                        print(
+                            "동의 단계 '다음' 클릭 완료 - 03 정보 입력으로 보이는 화면을 남겼습니다. "
+                            "정보입력/최종제출은 진행하지 않았습니다."
+                        )
+                    else:
+                        print("동의 단계 '다음' 버튼을 찾지 못해 클릭하지 않았습니다.")
+                else:
+                    print("동의 체크박스를 클릭하지 못해 다음 단계로 진행하지 않았습니다.")
             else:
                 print("'다음' 버튼을 찾지 못해 클릭하지 않았습니다.")
 
-            print("리허설 완료: 여기서 멈춥니다. 동의/정보입력/제출은 진행하지 않았습니다.")
+            print("리허설 완료: 여기서 멈춥니다. 정보입력/최종제출은 진행하지 않았습니다.")
         finally:
             context.close()
             browser.close()
