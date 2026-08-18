@@ -157,6 +157,49 @@ def check_all_agreements(page) -> bool:
     return False
 
 
+def dump_info_form_fields(page, label: str) -> None:
+    """03 정보 입력 화면의 실제 input/select 마크업을 파악한다.
+    아직 값을 채우지 않은 상태에서 구조만 읽는다 - 잘못된 값을 잘못된 필드에
+    입력하지 않도록, 채우기 전에 항상 먼저 구조를 확인한다."""
+    inputs = page.locator("input")
+    total = inputs.count()
+    entries = []
+    for index in range(total):
+        el = inputs.nth(index)
+        entries.append(
+            {
+                "type": el.get_attribute("type"),
+                "id": el.get_attribute("id"),
+                "name": el.get_attribute("name"),
+                "placeholder": el.get_attribute("placeholder"),
+                "checked": el.get_attribute("checked"),
+            }
+        )
+    print(f"[{label}] input 요소 목록(총 {total}개, value는 개인정보라 생략): {entries}")
+
+    selects = page.locator("select")
+    stotal = selects.count()
+    sentries = []
+    for index in range(stotal):
+        el = selects.nth(index)
+        sentries.append({"id": el.get_attribute("id"), "name": el.get_attribute("name")})
+    print(f"[{label}] select 요소 목록(총 {stotal}개): {sentries}")
+
+    for keyword in ["생년월일", "부서명", "휴대전화번호", "구분", "신랑 성명", "신부 성명", "이메일"]:
+        loc = page.get_by_text(re.compile(re.escape(keyword))).first
+        if not loc.count():
+            print(f"[{label}] '{keyword}' 요소를 찾지 못함")
+            continue
+        for levels_up in [2, 3]:
+            ancestor = loc.locator("xpath=" + "/.." * levels_up)
+            try:
+                html = ancestor.evaluate("el => el.outerHTML")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[{label}] '{keyword}' {levels_up}단계 상위 HTML 추출 실패: {exc}", file=sys.stderr)
+                continue
+            print(f"[{label}] '{keyword}' {levels_up}단계 상위 HTML(최대 1200자): {html[:1200]}")
+
+
 def dump_screen(page, label: str, time_text: str | None = None) -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     screenshot_path = ARTIFACT_DIR / f"rehearsal-{label}.png"
@@ -218,6 +261,7 @@ def main() -> None:
                     if click_text(page, ["다음"], timeout=3_000):
                         page.wait_for_timeout(1_500)
                         dump_screen(page, "05-after-agreement-next-click")
+                        dump_info_form_fields(page, "06-info-form-fields")
                         print(
                             "동의 단계 '다음' 클릭 완료 - 03 정보 입력으로 보이는 화면을 남겼습니다. "
                             "정보입력/최종제출은 진행하지 않았습니다."
