@@ -1120,6 +1120,28 @@ def click_available_time(page: Page, time_text: str) -> bool:
     """현재 열려 있는 날짜 상세 패널에서 특정 시간대를 찾아 클릭한다.
     실제로 "예약가능" 상태인 시간대만 클릭한다 - 마감인 시간대를 실수로 클릭하지
     않도록 클릭 전에 상태를 다시 확인한다. 반환값: 클릭 성공 여부."""
+    # 실제 마크업 확인됨: 시간대는 <input type=radio name=fn_rd_time value="HH:MM">이고
+    # <label for=...>가 화면에 보이는 클릭 대상이다. 이 라디오를 우선 시도한다.
+    radio = page.locator(f'input[type=radio][name=fn_rd_time][value="{time_text}"]')
+    if radio.count():
+        li = radio.first.locator("xpath=ancestor::li[1]")
+        try:
+            detail = re.sub(r"\s+", " ", li.inner_text(timeout=1_000)).strip()
+        except PlaywrightTimeoutError:
+            detail = ""
+        if detail and classify_status(detail) != "available":
+            print(f"{time_text} 클릭 안 함 - 상태가 예약가능이 아님: {detail!r}")
+            return False
+        radio_id = radio.first.get_attribute("id") or ""
+        label = page.locator(f'label[for="{radio_id}"]') if radio_id else None
+        for candidate in ([label, radio] if label is not None else [radio]):
+            try:
+                candidate.first.click(timeout=2_000)
+                print(f"{time_text} 라디오 클릭 성공 (상태: {detail!r})")
+                return True
+            except PlaywrightTimeoutError:
+                continue
+
     time_locators = page.get_by_text(re.compile(rf"^\s*{re.escape(time_text)}\s*$"))
     for index in range(time_locators.count()):
         loc = time_locators.nth(index)

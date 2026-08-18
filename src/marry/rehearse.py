@@ -17,6 +17,7 @@ from marry.monitor import (
     ARTIFACT_DIR,
     click_available_time,
     click_day_button,
+    click_text,
     go_to_target_month,
     login,
     required_env,
@@ -145,6 +146,13 @@ def main() -> None:
 
             page.wait_for_timeout(1_500)
             dump_screen(page, "02-after-time-click", time_text=time_text)
+
+            if click_text(page, ["다음"], timeout=3_000):
+                page.wait_for_timeout(1_500)
+                dump_screen(page, "03-after-next-click")
+                print("'다음' 버튼 클릭 완료 - 02 동의 단계로 보이는 화면을 남겼습니다.")
+            else:
+                print("'다음' 버튼을 찾지 못해 클릭하지 않았습니다.")
 
             print("리허설 완료: 여기서 멈춥니다. 동의/정보입력/제출은 진행하지 않았습니다.")
         finally:
