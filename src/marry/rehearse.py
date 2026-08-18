@@ -80,13 +80,32 @@ def dump_clickable_elements(page, label: str) -> None:
             print(f"[{label}] '{keyword}' 포함 보이는 요소({len(visible_texts)}개): {visible_texts}")
 
 
-def dump_screen(page, label: str) -> None:
+def dump_time_area_html(page, label: str, time_text: str) -> None:
+    """클릭해도 화면이 안 바뀌어서, "17:00" 텍스트 주변 실제 마크업을 단계별로
+    덤프한다 - 숨겨진 라디오나 별도 확인 버튼이 있는지 확인하기 위함."""
+    loc = page.get_by_text(re.compile(rf"^\s*{re.escape(time_text)}\s*$")).first
+    if not loc.count():
+        print(f"[{label}] '{time_text}' 요소를 찾지 못해 HTML 덤프 불가")
+        return
+    for levels_up in [2, 3, 4]:
+        ancestor = loc.locator("xpath=" + "/.." * levels_up)
+        try:
+            html = ancestor.evaluate("el => el.outerHTML")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[{label}] {levels_up}단계 상위 HTML 추출 실패: {exc}", file=sys.stderr)
+            continue
+        print(f"[{label}] '{time_text}' {levels_up}단계 상위 HTML(최대 2500자): {html[:2500]}")
+
+
+def dump_screen(page, label: str, time_text: str | None = None) -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     screenshot_path = ARTIFACT_DIR / f"rehearsal-{label}.png"
     page.screenshot(path=screenshot_path, full_page=True)
     print(f"[{label}] URL={page.url}")
     dump_selected_day(page, label)
     dump_clickable_elements(page, label)
+    if time_text:
+        dump_time_area_html(page, label, time_text)
     try:
         body_text = re.sub(r"\s+", " ", page.locator("body").inner_text(timeout=2_000)).strip()
         print(f"[{label}] 본문 텍스트(최대 1500자): {body_text[:1500]}")
@@ -119,13 +138,13 @@ def main() -> None:
             day_result = click_day_button(page, year, month, day)
             if day_result == "closed":
                 raise RuntimeError(f"{year}-{month:02d}-{day:02d}가 이미 마감 상태라 클릭할 수 없습니다.")
-            dump_screen(page, "01-day-panel")
+            dump_screen(page, "01-day-panel", time_text=time_text)
 
             if not click_available_time(page, time_text):
                 raise RuntimeError(f"{time_text} 시간대를 클릭하지 못했습니다 - 이미 마감됐을 수 있습니다.")
 
             page.wait_for_timeout(1_500)
-            dump_screen(page, "02-after-time-click")
+            dump_screen(page, "02-after-time-click", time_text=time_text)
 
             print("리허설 완료: 여기서 멈춥니다. 동의/정보입력/제출은 진행하지 않았습니다.")
         finally:
