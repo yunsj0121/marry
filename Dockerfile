@@ -6,4 +6,5 @@ RUN apt-get update \
         tesseract-ocr-eng \
         tesseract-ocr-osd \
         git \
+        lsb-release \
     && rm -rf /var/lib/apt/lists/*
