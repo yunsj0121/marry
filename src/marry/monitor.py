@@ -665,16 +665,31 @@ def login(page: Page, employee_id: str, password: str) -> None:
         "input[id*=password i]",
         "input[placeholder*=비밀번호]",
     ]
-    try:
-        fill_first(page, id_selectors, employee_id)
-        fill_first(page, password_selectors, password)
-    except RuntimeError:
-        page.wait_for_timeout(1_000)
-        if not handle_security_page(page):
-            raise
-        login_heading.wait_for(state="visible", timeout=8_000)
-        fill_first(page, id_selectors, employee_id)
-        fill_first(page, password_selectors, password)
+    # "선택 완료" 클릭이 띄우는 회사 인증 confirm()이 클릭 직후가 아니라 지연되어
+    # 뜰 때가 있어(실제로 이 시점에서 로그인 입력란 채우기가 종종 실패했음 확인됨),
+    # 그 지연된 dialog가 사번/비밀번호 입력과 겹치면 fill이 깨질 수 있다. 보안 화면이
+    # 없어도 잠깐 기다렸다가 재시도하도록 재시도 횟수를 넉넉히 둔다.
+    login_fill_attempts = 3
+    last_error: RuntimeError | None = None
+    for attempt in range(login_fill_attempts):
+        try:
+            fill_first(page, id_selectors, employee_id)
+            fill_first(page, password_selectors, password)
+            last_error = None
+            break
+        except RuntimeError as exc:
+            last_error = exc
+            print(f"로그인 입력란 채우기 재시도 필요(시도 {attempt + 1}/{login_fill_attempts}): {exc}")
+            if attempt == login_fill_attempts - 1:
+                break
+            page.wait_for_timeout(1_500)
+            handle_security_page(page)
+            try:
+                login_heading.wait_for(state="visible", timeout=8_000)
+            except PlaywrightTimeoutError:
+                pass
+    if last_error is not None:
+        raise last_error
     try:
         page.locator("#loginButn").click(timeout=5_000)
     except PlaywrightTimeoutError:
