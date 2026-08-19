@@ -1,6 +1,6 @@
 {
-  "run_status": "error",
-  "checked_at": "2026-08-19T19:40:20+09:00",
+  "run_status": "ok",
+  "checked_at": "2026-08-19T20:34:42+09:00",
   "targets": {
     "2027-08-28 17:00": {
       "status": "unavailable",
@@ -23,5 +23,5 @@
       "detail": "unavailable"
     }
   },
-  "error": "RuntimeError: 로그인 입력란을 찾거나 입력하지 못했습니다."
+  "error": ""
 }
