@@ -24,10 +24,13 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   rehearse:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/yunsj0121/marry-ci:latest
     timeout-minutes: 10
     env:
       SAMSUNG_WEDDING_EMPLOYEE_ID: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_ID }}
@@ -50,19 +53,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Ensure OCR engine
-        timeout-minutes: 2
-        continue-on-error: true
-        run: command -v tesseract || (sudo apt-get update && sudo apt-get install -y tesseract-ocr)
       - name: Install project
         run: pip install -e .
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
+      # ghcr.io/yunsj0121/marry-ci 이미지에 Chromium과 tesseract가 이미 들어있어서
+      # 별도 설치 단계가 필요 없다. 그래도 이미지가 오래돼 playwright 패키지 버전과
+      # 어긋나는 경우를 대비해 안전망으로 남겨둔다 - 버전이 맞으면 거의 즉시 끝난다.
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: Run rehearsal
