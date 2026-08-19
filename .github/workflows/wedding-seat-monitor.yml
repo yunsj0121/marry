@@ -64,6 +64,10 @@ jobs:
       - name: Save monitor state
         if: always()
         run: |
+          # 컨테이너 안에서는 checkout이 추가한 safe.directory 설정이 이후
+          # 단계들이 쓰는 HOME에는 보이지 않아 git이 "not in a git directory"로
+          # 오작동하는 걸 확인함 - 명시적으로 다시 등록한다.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if git diff --quiet -- state/availability.json; then
             exit 0
           fi
