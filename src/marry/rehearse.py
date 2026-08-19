@@ -204,6 +204,7 @@ def fill_applicant_info(page) -> dict[str, str]:
     """개인정보 필드를 환경변수 값으로 채운다. 실제 값(생년월일/이름/전화번호 등)은
     절대 로그에 출력하지 않고, 필드별 성공/실패 여부만 반환한다."""
     results: dict[str, str] = {}
+    filled: list[tuple[str, str, str]] = []
 
     def fill_text(selector: str, value: str, field_name: str) -> None:
         if not value:
@@ -217,6 +218,7 @@ def fill_applicant_info(page) -> dict[str, str]:
             loc.first.fill(value, timeout=2_000)
             actual = loc.first.input_value(timeout=1_000)
             results[field_name] = "성공" if actual == value else "값이 기대와 다름(포맷터가 값을 바꿨을 수 있음)"
+            filled.append((selector, value, field_name))
         except PlaywrightTimeoutError:
             results[field_name] = "채우기 실패(타임아웃)"
 
@@ -224,19 +226,36 @@ def fill_applicant_info(page) -> dict[str, str]:
     fill_text("#wedgAplcnsDeptNm", os.getenv("APPLICANT_DEPARTMENT", "").strip(), "부서명")
     fill_text("#wedgAplcnsEmadre", os.getenv("APPLICANT_EMAIL_LOCAL", "").strip(), "이메일")
     fill_text("#wedgAplcnsMpnoeB", os.getenv("APPLICANT_PHONE_SUFFIX", "").strip(), "휴대전화번호")
-    fill_text("#wedgAplcRlpplFnm1", os.getenv("GROOM_NAME", "").strip(), "신랑 성명")
-    fill_text("#wedgAplcRlpplFnm2", os.getenv("BRIDE_NAME", "").strip(), "신부 성명")
 
+    # "구분" 라디오의 onchange가 EVENT.changeRelNm(...)을 호출하는데, 이게 신랑/신부
+    # 성명 입력칸을 초기화하는 것으로 확인됨(리허설로 실제 화면에서 확인). 그래서
+    # 구분을 먼저 선택하고, 이름은 그 다음에 채워야 지워지지 않는다.
     role = os.getenv("APPLICANT_ROLE", "").strip()
     role_id = {"부모": "fi_rd_parent", "신랑": "fi_rd_groom", "신부": "fi_rd_bride"}.get(role)
     if role_id:
         try:
             page.locator(f'label[for="{role_id}"]').first.click(timeout=2_000)
+            page.wait_for_timeout(300)
             results["구분"] = "성공"
         except PlaywrightTimeoutError:
             results["구분"] = "클릭 실패(타임아웃)"
     else:
         results["구분"] = "값 없음(건너뜀)"
+
+    fill_text("#wedgAplcRlpplFnm1", os.getenv("GROOM_NAME", "").strip(), "신랑 성명")
+    fill_text("#wedgAplcRlpplFnm2", os.getenv("BRIDE_NAME", "").strip(), "신부 성명")
+
+    # 최종 재검증: 나중에 실행된 다른 클릭/이벤트가 앞서 채운 값을 조용히
+    # 초기화했을 수 있으니(실제로 "구분" 클릭이 이름 칸을 지운 적이 있었음),
+    # 모든 필드를 마지막에 한 번 더 읽어서 비교한다.
+    for selector, expected, field_name in filled:
+        loc = page.locator(selector)
+        try:
+            actual = loc.first.input_value(timeout=1_000)
+        except PlaywrightTimeoutError:
+            actual = None
+        if actual != expected:
+            results[field_name] = "최종 확인 실패 - 이후 다른 동작이 값을 지웠을 수 있음"
 
     print(f"[07-info-form-filled] 필드 채우기 결과(값 자체는 개인정보라 표시 안 함): {results}")
     return results
