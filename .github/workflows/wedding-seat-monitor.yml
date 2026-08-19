@@ -39,19 +39,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
+      # ghcr.io/yunsj0121/marry-ci 이미지에 이미 Python(+Chromium, tesseract)이
+      # 들어있어서 actions/setup-python은 쓰지 않는다 - 컨테이너 안에서 setup-python이
+      # 자체 Python을 새로 받으려다 pip 실행 파일을 못 찾아 실패하는 걸 확인했음
+      # (spawn pip ENOENT). 이미지에 내장된 python3를 그대로 쓴다.
       - name: Install project
-        run: pip install -e . pytest
-      # ghcr.io/yunsj0121/marry-ci 이미지에 Chromium과 tesseract가 이미 들어있어서
-      # 별도 설치 단계가 필요 없다. 그래도 이미지가 오래돼 playwright 패키지 버전과
-      # 어긋나는 경우를 대비해 안전망으로 남겨둔다 - 버전이 맞으면 거의 즉시 끝난다.
+        run: python3 -m pip install -e . pytest
+      # 버전이 맞으면 거의 즉시 끝나는 안전망 - 이미지가 오래돼 playwright 패키지
+      # 버전과 어긋나는 경우에만 실제로 다운로드가 발생한다.
       - name: Install Chromium
-        run: python -m playwright install --with-deps chromium
+        run: python3 -m playwright install --with-deps chromium
       - name: Run tests
-        run: pytest -q
+        run: python3 -m pytest -q
       - name: Check availability
         run: marry-monitor
       - name: Upload diagnostic screenshot
