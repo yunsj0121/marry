@@ -263,10 +263,31 @@ def fill_applicant_info(page) -> dict[str, str]:
 
 def capture_screen_only(page, label: str) -> None:
     """텍스트 덤프 없이 스크린샷만 남긴다 - 이 시점 화면에는 실제 개인정보가
-    입력되어 있어 로그에 텍스트로 남기지 않기 위함."""
+    입력되어 있어 로그에 텍스트로 남기지 않기 위함. footer(결혼도움방 고객센터 등)는
+    스크린샷 공간만 차지하고 확인에 필요 없어 숨기고, 대신 부서명 필드는
+    sticky 헤더에 가려 안 보일 수 있어 별도로 확대 캡처한다."""
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        page.add_style_tag(content="footer, .foot, #footer { display: none !important; }")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{label}] footer 숨기기 실패(무시하고 계속 진행): {exc}", file=sys.stderr)
+
     screenshot_path = ARTIFACT_DIR / f"rehearsal-{label}.png"
     page.screenshot(path=screenshot_path, full_page=True)
+
+    dept_field = page.locator("#wedgAplcnsDeptNm")
+    if dept_field.count():
+        dept_row = dept_field.locator("xpath=ancestor::li[1]")
+        dept_path = ARTIFACT_DIR / f"rehearsal-{label}-deptnm.png"
+        try:
+            dept_row.first.screenshot(path=dept_path, timeout=2_000)
+            print(f"[{label}] 부서명 필드 별도 캡처 완료: {dept_path.name}")
+        except PlaywrightTimeoutError:
+            print(f"[{label}] 부서명 필드 캡처 실패(타임아웃)")
+    else:
+        print(f"[{label}] 부서명 입력 요소를 찾지 못해 별도 캡처 불가")
+
     print(f"[{label}] URL={page.url} (개인정보 노출 방지를 위해 텍스트 덤프는 생략, 스크린샷만 저장)")
 
 
