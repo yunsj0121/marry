@@ -14,6 +14,7 @@ dependencies = [
 marry-apply = "marry.apply:main"
 marry-monitor = "marry.monitor:main"
 marry-rehearse = "marry.rehearse:main"
+marry-book = "marry.book:main"
 
 [tool.ruff]
 line-length = 100
