@@ -3,11 +3,11 @@
 동시접속이 몰리는 오픈 순간에는 1지망이 이미 마감돼 있을 가능성이 높으므로,
 지망 목록을 우선순위대로 두고 마감이면 즉시 다음 지망으로 넘어간다.
 
-주의: '신청' 최종 제출 버튼은 누르지 않는다. 제출 이후 화면(확인창, 마감 메시지 등)이
-아직 한 번도 실전에서 검증된 적이 없어, 그 흐름을 직접 실행하는 위험을 피하기 위해서다.
-이 스크립트는 정보입력 화면 도달까지만 자동화하고, 그 다음은 사람이 스크린샷/텔레그램
-알림을 보고 판단한다. headless=False로 로컬에서 직접 띄워서 실행하면, 정보입력까지
-자동으로 도달한 그 화면을 사람이 그대로 이어받아 '신청'을 누를 수도 있다.
+BOOKING_AUTO_SUBMIT=true면 정보입력 이후 '신청' 버튼까지 자동으로 눌러 사람 개입 없이
+끝낸다('신청' 클릭 후 확인창 없이 바로 종료되는 것을 실제 화면에서 확인함). false면
+정보입력 화면 도달까지만 자동화하고 '신청'은 누르지 않은 채 멈춘다 - headless=False로
+로컬에서 직접 띄워서 실행하면, 정보입력까지 자동으로 도달한 그 화면을 사람이 그대로
+이어받아 '신청'을 누를 수도 있다.
 
 트리거(예: GitHub Actions)는 오픈 시각보다 몇 분 앞서 실행을 시작해야 한다 - 이 스크립트
 안에서 wait_until()로 실제 목표 시각까지 대기하는 식으로 정밀도를 맞춘다. schedule/외부
@@ -107,8 +107,7 @@ def attempt_target(page, target: BookingTarget) -> bool:
 
 
 def proceed_to_info_form(page, label: str) -> bool:
-    """시간대 선택 이후 다음/동의/다음을 거쳐 정보입력 화면까지 진행한다.
-    최종 '신청' 제출은 하지 않는다."""
+    """시간대 선택 이후 다음/동의/다음을 거쳐 정보입력 화면까지 진행한다."""
     page.wait_for_timeout(1_000)
     if not click_text(page, ["다음"], timeout=5_000):
         print(f"[{label}] '다음' 버튼을 찾지 못함")
@@ -130,7 +129,21 @@ def proceed_to_info_form(page, label: str) -> bool:
     return True
 
 
-def run(targets: list[BookingTarget], open_at: datetime, *, headless: bool) -> bool:
+def submit_application(page, label: str) -> bool:
+    """정보입력 화면에서 '신청' 버튼을 눌러 최종 제출한다.
+    클릭 후 별도 확인창 없이 바로 종료되는 것으로 확인됨."""
+    if not click_text(page, ["신청"], timeout=5_000):
+        print(f"[{label}] '신청' 버튼을 찾지 못함")
+        return False
+    page.wait_for_timeout(1_500)
+    capture_screen_only(page, f"book-{label}-submitted")
+    print(f"[{label}] '신청' 버튼 클릭 완료")
+    return True
+
+
+def run(
+    targets: list[BookingTarget], open_at: datetime, *, headless: bool, auto_submit: bool
+) -> bool:
     employee_id = required_env("SAMSUNG_WEDDING_EMPLOYEE_ID")
     password = required_env("SAMSUNG_WEDDING_EMPLOYEE_PASSWORD")
 
@@ -145,15 +158,29 @@ def run(targets: list[BookingTarget], open_at: datetime, *, headless: bool) -> b
             print("오픈 시각 도달 - 지망 순서대로 시도합니다.")
 
             for index, target in enumerate(targets, start=1):
+                label = f"target{index}"
                 try:
                     if not attempt_target(page, target):
                         continue
-                    if proceed_to_info_form(page, f"target{index}"):
+                    if not proceed_to_info_form(page, label):
+                        continue
+
+                    if not auto_submit:
                         send_telegram(
                             f"[웨딩홀 예약] {index}지망 {target.label} 정보입력 화면까지 진입 성공.\n"
                             "지금 바로 확인해서 최종 신청을 완료하세요."
                         )
                         return True
+
+                    page.wait_for_timeout(500)
+                    if submit_application(page, label):
+                        send_telegram(f"[웨딩홀 예약] {index}지망 {target.label} 신청 완료!")
+                    else:
+                        send_telegram(
+                            f"[웨딩홀 예약] {index}지망 {target.label} 정보입력까지는 성공했지만 "
+                            "'신청' 버튼을 누르지 못했습니다. 직접 확인하세요."
+                        )
+                    return True
                 except Exception as exc:  # noqa: BLE001 - 한 지망 실패는 다음 지망 시도를 막지 않는다
                     print(f"[{target.label}] 처리 중 오류: {exc}")
                     continue
@@ -161,21 +188,19 @@ def run(targets: list[BookingTarget], open_at: datetime, *, headless: bool) -> b
             send_telegram("[웨딩홀 예약] 모든 지망이 마감되어 신청 화면에 진입하지 못했습니다.")
             return False
         finally:
-            if headless:
-                context.close()
-                browser.close()
-            else:
+            if not headless and not auto_submit:
                 print("headless=False - 신청 화면을 이어서 진행하려면 브라우저 창을 직접 확인하세요.")
                 page.wait_for_timeout(600_000)
-                context.close()
-                browser.close()
+            context.close()
+            browser.close()
 
 
 def main() -> None:
     targets = parse_targets()
     open_at = datetime.fromisoformat(required_env("BOOKING_OPEN_AT")).replace(tzinfo=KST)
     headless = required_env("BOOKING_HEADLESS").strip().lower() not in {"0", "false", "no"}
-    run(targets, open_at, headless=headless)
+    auto_submit = required_env("BOOKING_AUTO_SUBMIT").strip().lower() not in {"0", "false", "no"}
+    run(targets, open_at, headless=headless, auto_submit=auto_submit)
 
 
 if __name__ == "__main__":
