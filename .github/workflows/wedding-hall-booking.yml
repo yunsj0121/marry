@@ -1,0 +1,67 @@
+name: Wedding hall booking
+# 오픈 순간 우선순위 지망을 순서대로 시도해 실제 신청까지 자동 진행할 수 있는
+# 민감한 동작이라, schedule 트리거는 두지 않는다. cron-job.org 등 외부에서
+# workflow_dispatch API를 오픈 시각보다 충분히 앞서(예: 30분~1시간 전) 호출해
+# 명시적으로 트리거한다 - 실제 클릭 타이밍은 marry-book 내부의 wait_until()이
+# 시스템 시계 기준으로 정확히 맞추므로, 이 워크플로우 자체가 정확히 언제
+# "시작"되는지는 몇 분 정도 늦어도 문제없다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets_json:
+        description: '우선순위 지망 목록 JSON (예: [{"hall":"서초사옥","date":"2027-11-13","time":"13:00"}])'
+        required: true
+      open_at:
+        description: "오픈 시각, Asia/Seoul 기준 (예: 2026-09-15T14:00:00)"
+        required: true
+      auto_submit:
+        description: "정보입력 이후 '신청' 버튼까지 자동으로 누를지 (true/false)"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  book:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/yunsj0121/marry-ci:latest
+    # 오픈 시각까지 대기하는 시간까지 포함해야 하므로 넉넉하게 잡는다.
+    timeout-minutes: 120
+    env:
+      SAMSUNG_WEDDING_EMPLOYEE_ID: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_ID }}
+      SAMSUNG_WEDDING_EMPLOYEE_PASSWORD: ${{ secrets.SAMSUNG_WEDDING_EMPLOYEE_PASSWORD }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      APPLICANT_BIRTHDATE_YYYYMMDD: ${{ secrets.APPLICANT_BIRTHDATE_YYYYMMDD }}
+      APPLICANT_DEPARTMENT: ${{ secrets.APPLICANT_DEPARTMENT }}
+      APPLICANT_EMAIL_LOCAL: ${{ secrets.APPLICANT_EMAIL_LOCAL }}
+      APPLICANT_PHONE_SUFFIX: ${{ secrets.APPLICANT_PHONE_SUFFIX }}
+      GROOM_NAME: ${{ secrets.GROOM_NAME }}
+      BRIDE_NAME: ${{ secrets.BRIDE_NAME }}
+      APPLICANT_ROLE: ${{ secrets.APPLICANT_ROLE }}
+      BOOKING_TARGETS_JSON: ${{ github.event.inputs.targets_json }}
+      BOOKING_OPEN_AT: ${{ github.event.inputs.open_at }}
+      BOOKING_HEADLESS: "true"
+      BOOKING_AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
+    steps:
+      - uses: actions/checkout@v4
+      # ghcr.io/yunsj0121/marry-ci 이미지에 이미 Python(+Chromium, tesseract)이
+      # 들어있어서 actions/setup-python은 쓰지 않는다.
+      - name: Install project
+        run: python3 -m pip install -e .
+      - name: Install Chromium
+        run: python3 -m playwright install --with-deps chromium
+      - name: Run booking
+        run: marry-book
+      - name: Upload booking artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wedding-booking-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
