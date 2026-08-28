@@ -629,15 +629,25 @@ def login(page: Page, employee_id: str, password: str) -> None:
                 )
             elif not click_text(page, ["삼성화재"], timeout=3_000):
                 continue
-            if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
-                continue
-            for _ in range(40):
-                if (
-                    has_visible_text(page, re.compile(r"보안프로그램\s*설치여부"))
-                    or has_visible_text(page, re.compile(r"사원번호.*아이디.*로그인"))
-                ):
+
+            # "선택 완료" 클릭 후 다음 화면(보안설치 확인 또는 로그인 폼)이 뜨는 게
+            # 사이트 쪽 지연으로 20초를 넘길 때가 있어(2026-08-28 run #450에서 실제로
+            # M1 화면에 멈춰 실패한 사례 확인됨), 한 번 더 눌러 재시도한다.
+            reached_next_step = False
+            for select_attempt in range(2):
+                if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
                     break
-                page.wait_for_timeout(500)
+                for _ in range(40):
+                    if (
+                        has_visible_text(page, re.compile(r"보안프로그램\s*설치여부"))
+                        or has_visible_text(page, re.compile(r"사원번호.*아이디.*로그인"))
+                    ):
+                        reached_next_step = True
+                        break
+                    page.wait_for_timeout(500)
+                if reached_next_step:
+                    break
+                print(f"'선택 완료' 이후 다음 화면 대기 실패(시도 {select_attempt + 1}/2) - 재시도")
             break
         except PlaywrightTimeoutError:
             continue
