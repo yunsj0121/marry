@@ -617,7 +617,14 @@ def login(page: Page, employee_id: str, password: str) -> None:
             page.locator(selector).first.fill("삼성화재", timeout=1_500)
             click_text(page, ["검색", "조회"])
             company_name = page.get_by_text(re.compile(r"^\s*삼성화재\s*$"))
-            company_name.first.wait_for(state="visible", timeout=8_000)
+            # 검색 결과가 8초 안에 안 뜨는 사이트 쪽 지연이 있어(2026-09-01 run #826에서
+            # 실제로 검색 결과 자체가 안 뜬 채 실패한 사례 확인됨) 검색을 한 번 더
+            # 눌러 재시도한다.
+            try:
+                company_name.first.wait_for(state="visible", timeout=8_000)
+            except PlaywrightTimeoutError:
+                click_text(page, ["검색", "조회"])
+                company_name.first.wait_for(state="visible", timeout=8_000)
             company_radios = page.locator("input[type=radio]")
             if company_radios.count():
                 company_radios.first.evaluate(
