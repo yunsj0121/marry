@@ -485,6 +485,17 @@ def handle_security_page(page: Page) -> bool:
         page, re.compile(r"보안프로그램\s*설치여부")
     ):
         return False
+
+    # 로그인 제출 직후 보안프로그램 선택 화면(라디오/문구)이 렌더링되는 데
+    # 고정 5초 대기로도 부족할 때가 있어(2026-09-04 run #1126에서 radio=0인
+    # 채로 호출돼 실패한 사례 확인됨), 라디오나 "설치하지 않음" 문구가 보일
+    # 때까지 최대 10초 더 기다린다.
+    no_install_pattern = re.compile(r"^\s*설치하지\s*않음\s*$")
+    for _ in range(20):
+        if radios.count() >= 2 or has_visible_text(page, no_install_pattern):
+            break
+        page.wait_for_timeout(500)
+
     selected = False
     for index in range(radios.count()):
         radio = radios.nth(index)
@@ -525,7 +536,7 @@ def handle_security_page(page: Page) -> bool:
         except Exception:  # noqa: BLE001 - fall back to clicking the card
             pass
     if not selected:
-        headings = page.get_by_text(re.compile(r"^\s*설치하지\s*않음\s*$"))
+        headings = page.get_by_text(no_install_pattern)
         for index in range(headings.count()):
             no_install = headings.nth(index)
             if not no_install.is_visible():
