@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
@@ -198,6 +198,49 @@ def test_reselect_hall_only_when_hall_changes(monkeypatch):
 def test_previous_month_handles_year_rollover():
     assert book.previous_month(2027, 11) == (2027, 10)
     assert book.previous_month(2027, 1) == (2026, 12)
+
+
+def test_login_waits_until_lead_time_before_open(monkeypatch):
+    """세션 유지시간(10분)보다 여유를 두고, 오픈 시각 LOGIN_LEAD_SECONDS 전에
+    로그인하도록 한다."""
+    playwright = MagicMock()
+    monkeypatch.setattr(book, 'sync_playwright', playwright)
+    monkeypatch.setattr(book, 'required_env', Mock(return_value='unused'))
+    login_mock = Mock()
+    wait_until_mock = Mock()
+    monkeypatch.setattr(book, 'login', login_mock)
+    monkeypatch.setattr(book, 'wait_until', wait_until_mock)
+    monkeypatch.setattr(book, 'prepare_target', Mock())
+    monkeypatch.setattr(book, 'attempt_target', Mock(return_value=False))
+    monkeypatch.setattr(book, 'send_telegram', Mock())
+
+    open_at = datetime.now(book.KST)
+    book.run([], open_at, headless=True, auto_submit=True)
+
+    expected_login_at = open_at - timedelta(seconds=book.LOGIN_LEAD_SECONDS)
+    assert wait_until_mock.call_args_list[0].args[0] == expected_login_at
+    login_mock.assert_called_once()
+
+
+def test_wait_for_month_open_retries_until_success(monkeypatch):
+    monkeypatch.setattr(book, 'go_to_target_month', Mock(side_effect=[RuntimeError('아직'), None]))
+    monkeypatch.setattr(book.time, 'sleep', Mock())
+    target = book.BookingTarget('서초사옥', 2027, 11, 21, '11:00')
+
+    book.wait_for_month_open(MagicMock(), target)
+
+    assert book.go_to_target_month.call_count == 2
+    book.time.sleep.assert_called_once_with(0.5)
+
+
+def test_wait_for_month_open_gives_up_after_deadline(monkeypatch):
+    monkeypatch.setattr(book, 'go_to_target_month', Mock(side_effect=RuntimeError('계속 안 열림')))
+    monkeypatch.setattr(book, 'MONTH_OPEN_RETRY_SECONDS', 0)
+    monkeypatch.setattr(book.time, 'sleep', Mock())
+    target = book.BookingTarget('서초사옥', 2027, 11, 21, '11:00')
+
+    with pytest.raises(RuntimeError, match='계속 안 열림'):
+        book.wait_for_month_open(MagicMock(), target)
 
 
 @pytest.mark.parametrize(('success', 'exit_code'), [(True, 0), (False, 1)])

@@ -12,6 +12,11 @@ BOOKING_AUTO_SUBMIT=true면 정보입력 이후 '신청' 버튼까지 자동으�
 트리거(예: GitHub Actions)는 오픈 시각보다 몇 분 앞서 실행을 시작해야 한다 - 이 스크립트
 안에서 wait_until()로 실제 목표 시각까지 대기하는 식으로 정밀도를 맞춘다. schedule/외부
 크론 자체의 실행 시각은 초 단위로 믿을 수 없다.
+
+로그인 세션 유지시간이 10분이라, 트리거 시각에 바로 로그인해두면 오픈 순간에는 이미
+세션이 끊겨 있을 수 있다(사용자 제보). 그래서 로그인 자체도 오픈 시각 직전(기본 5분 전)
+까지 미뤘다가 한다. 또한 오픈 시각이 되어도 실제로는 몇 초 뒤에나 다음 달로 넘어갈 수
+있다는 후기가 있어(2027-11-21 케이스), 목표 달 진입은 정각 이후 짧게 재시도한다.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from zoneinfo import ZoneInfo
 
@@ -46,6 +51,13 @@ from marry.rehearse import (
 )
 
 KST = ZoneInfo("Asia/Seoul")
+
+# 로그인 세션 유지시간(10분)보다 여유 있게, 오픈 시각 이 시간 전에 로그인한다.
+LOGIN_LEAD_SECONDS = 5 * 60
+
+# 오픈 정각이 되어도 실제로 다음 달이 열리기까지 몇 초 걸릴 수 있어(후기 기반),
+# 목표 달 진입을 이 시간 동안 짧은 간격으로 재시도한다.
+MONTH_OPEN_RETRY_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -114,6 +126,21 @@ def prepare_target(page, target: BookingTarget) -> None:
     print(f"사전 준비 완료: {target.hall} {prep_year}-{prep_month:02d}월까지 미리 이동해 대기합니다.")
 
 
+def wait_for_month_open(page, target: BookingTarget) -> None:
+    """목표 달로 이동될 때까지 짧은 간격으로 재시도한다. 오픈 정각이 지나도
+    실제로는 몇 초 뒤에나 다음 달이 열릴 수 있어(후기 기반), go_to_target_month가
+    실패해도 바로 포기하지 않는다."""
+    deadline = time.monotonic() + MONTH_OPEN_RETRY_SECONDS
+    while True:
+        try:
+            go_to_target_month(page, target.year, target.month)
+            return
+        except RuntimeError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.5)
+
+
 def attempt_target(page, target: BookingTarget, *, reselect_hall: bool) -> bool:
     """지망 하나를 시도한다. 시간대 클릭까지 성공하면 True.
     reselect_hall이 False면 이미 해당 홀 페이지에 있다고 보고 다시 이동하지 않는다
@@ -121,7 +148,7 @@ def attempt_target(page, target: BookingTarget, *, reselect_hall: bool) -> bool:
     print(f"[시도] {target.label}")
     if reselect_hall:
         select_hall(page, target.hall)
-    go_to_target_month(page, target.year, target.month)
+    wait_for_month_open(page, target)
 
     if click_day_button(page, target.year, target.month, target.day) == "closed":
         print(f"[실패] {target.label} - 날짜 마감")
@@ -237,6 +264,9 @@ def run(
         context = browser.new_context(locale="ko-KR", timezone_id="Asia/Seoul")
         page = context.new_page()
         try:
+            login_at = open_at - timedelta(seconds=LOGIN_LEAD_SECONDS)
+            print(f"로그인 세션 유지시간을 감안해 {login_at.isoformat()}까지 대기합니다.")
+            wait_until(login_at)
             login(page, employee_id, password)
 
             current_hall: str | None = None
