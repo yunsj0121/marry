@@ -113,6 +113,7 @@ def booking_run(monkeypatch):
     monkeypatch.setattr(book, 'sync_playwright', playwright)
     monkeypatch.setattr(book, 'required_env', Mock(return_value='unused'))
     monkeypatch.setattr(book, 'login', Mock())
+    monkeypatch.setattr(book, 'prepare_target', Mock())
     monkeypatch.setattr(book, 'wait_until', Mock())
     monkeypatch.setattr(book, 'attempt_target', Mock(return_value=True))
     monkeypatch.setattr(book, 'proceed_to_info_form', Mock(return_value=True))
@@ -162,6 +163,41 @@ def test_all_targets_failed(booking_run):
 def test_dry_run_never_submits(booking_run):
     assert booking_run(auto_submit=False) is True
     book.submit_application.assert_not_called()
+
+
+def test_prepare_target_called_once_with_first_target(booking_run):
+    booking_run()
+    book.prepare_target.assert_called_once()
+    assert book.prepare_target.call_args.args[1].day == 4
+
+
+def test_reselect_hall_only_when_hall_changes(monkeypatch):
+    """오픈 전에 미리 이동해둔 첫 지망은 다시 홀을 선택하지 않고,
+    지망마다 홀이 바뀔 때만 다시 선택하도록 한다."""
+    playwright = MagicMock()
+    monkeypatch.setattr(book, 'sync_playwright', playwright)
+    monkeypatch.setattr(book, 'required_env', Mock(return_value='unused'))
+    monkeypatch.setattr(book, 'login', Mock())
+    monkeypatch.setattr(book, 'prepare_target', Mock())
+    monkeypatch.setattr(book, 'wait_until', Mock())
+    monkeypatch.setattr(book, 'attempt_target', Mock(side_effect=[False, False]))
+    monkeypatch.setattr(book, 'proceed_to_info_form', Mock(return_value=True))
+    monkeypatch.setattr(book, 'send_telegram', Mock())
+
+    targets = [
+        book.BookingTarget('서초사옥', 2027, 11, 21, '11:00'),
+        book.BookingTarget('삼성금융연수원', 2027, 11, 20, '13:00'),
+    ]
+    book.run(targets, datetime.now(book.KST), headless=True, auto_submit=True)
+
+    calls = book.attempt_target.call_args_list
+    assert calls[0].kwargs['reselect_hall'] is False
+    assert calls[1].kwargs['reselect_hall'] is True
+
+
+def test_previous_month_handles_year_rollover():
+    assert book.previous_month(2027, 11) == (2027, 10)
+    assert book.previous_month(2027, 1) == (2026, 12)
 
 
 @pytest.mark.parametrize(('success', 'exit_code'), [(True, 0), (False, 1)])
