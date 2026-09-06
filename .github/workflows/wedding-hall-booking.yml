@@ -46,15 +46,18 @@ jobs:
       BOOKING_TARGETS_JSON: ${{ github.event.inputs.targets_json }}
       BOOKING_OPEN_AT: ${{ github.event.inputs.open_at }}
       BOOKING_HEADLESS: "true"
+      BOOKING_SUCCESS_SELECTOR: ${{ vars.BOOKING_SUCCESS_SELECTOR }}
       BOOKING_AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
     steps:
       - uses: actions/checkout@v4
       # ghcr.io/yunsj0121/marry-ci 이미지에 이미 Python(+Chromium, tesseract)이
       # 들어있어서 actions/setup-python은 쓰지 않는다.
       - name: Install project
-        run: python3 -m pip install -e .
+        run: python3 -m pip install -e ".[test]"
       - name: Install Chromium
         run: python3 -m playwright install --with-deps chromium
+      - name: Run tests
+        run: python3 -m pytest -q
       - name: Run booking
         run: marry-book
       - name: Upload booking artifacts

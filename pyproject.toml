@@ -8,7 +8,11 @@ dependencies = [
   "Pillow>=10.0.0",
   "playwright>=1.45.0",
   "pytesseract>=0.3.13",
+  "tzdata; sys_platform == 'win32'",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
 
 [project.scripts]
 marry-apply = "marry.apply:main"
@@ -21,3 +25,4 @@ line-length = 100
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
