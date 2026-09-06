@@ -200,6 +200,11 @@ def dump_info_form_fields(page, label: str) -> None:
             print(f"[{label}] '{keyword}' {levels_up}단계 상위 HTML(최대 1200자): {html[:1200]}")
 
 
+REQUIRED_APPLICANT_FIELDS = (
+    "생년월일", "부서명", "이메일", "휴대전화번호", "구분", "신랑 성명", "신부 성명",
+)
+
+
 def fill_applicant_info(page) -> dict[str, str]:
     """개인정보 필드를 환경변수 값으로 채운다. 실제 값(생년월일/이름/전화번호 등)은
     절대 로그에 출력하지 않고, 필드별 성공/실패 여부만 반환한다."""
@@ -236,7 +241,9 @@ def fill_applicant_info(page) -> dict[str, str]:
         try:
             page.locator(f'label[for="{role_id}"]').first.click(timeout=2_000)
             page.wait_for_timeout(300)
-            results["구분"] = "성공"
+            results["구분"] = (
+                "성공" if page.locator(f"#{role_id}").is_checked() else "선택 확인 실패"
+            )
         except PlaywrightTimeoutError:
             results["구분"] = "클릭 실패(타임아웃)"
     else:
@@ -391,3 +398,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

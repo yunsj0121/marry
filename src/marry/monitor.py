@@ -106,6 +106,7 @@ class MonitorState:
     checked_at: str
     targets: dict[str, dict[str, str]] = field(default_factory=dict)
     error: str = ""
+    pending_available: list[str] = field(default_factory=list)
 
 
 class DiagnosticTee(io.TextIOBase):
@@ -1079,8 +1080,8 @@ def click_table_day(page: Page, day: int) -> str | None:
             button.click(timeout=2_000)
             page.wait_for_timeout(500)
             return "opened"
-        except PlaywrightTimeoutError:
-            return "closed"
+        except PlaywrightTimeoutError as exc:
+            raise RuntimeError(f"{day}일 클릭 시간 초과: 예약 상태 확인불가") from exc
     return None
 
 
@@ -1297,6 +1298,24 @@ def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict
     return results
 
 
+def split_telegram_message(message: str, limit: int = TELEGRAM_LIMIT) -> list[str]:
+    """내용을 버리지 않고 Telegram 길이 제한 이하로 나눈다."""
+    if limit < 1:
+        raise ValueError("limit는 1 이상이어야 합니다.")
+    parts = []
+    while len(message) > limit:
+        boundary = message.rfind("\n", 0, limit + 1)
+        if boundary <= 0:
+            boundary = limit
+        parts.append(message[:boundary])
+        message = message[boundary:]
+        if message.startswith("\n"):
+            message = message[1:]
+    if message:
+        parts.append(message)
+    return parts
+
+
 def send_telegram(message: str) -> None:
     token = re.sub(r"\s+", "", required_env("TELEGRAM_BOT_TOKEN"))
     chat_id = re.sub(r"\s+", "", required_env("TELEGRAM_CHAT_ID"))
@@ -1315,6 +1334,7 @@ def load_previous_state() -> MonitorState:
             checked_at=data.get("checked_at", ""),
             targets=data.get("targets", {}),
             error=data.get("error", ""),
+            pending_available=list(data.get("pending_available", [])),
         )
     except (FileNotFoundError, TypeError, ValueError, json.JSONDecodeError, AttributeError):
         return MonitorState(run_status="unknown", checked_at="")
@@ -1322,7 +1342,9 @@ def load_previous_state() -> MonitorState:
 
 def save_state(state: MonitorState) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(asdict(state), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary = STATE_PATH.with_suffix(".tmp")
+    temporary.write_text(json.dumps(asdict(state), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(STATE_PATH)
 
 
 def run() -> int:
@@ -1423,20 +1445,30 @@ def run() -> int:
                 context.close()
                 browser.close()
 
-        current = MonitorState(run_status="ok", checked_at=checked_at, targets=results)
-        save_state(current)
-        print(json.dumps(asdict(current), ensure_ascii=False))
         newly_available = {
             key
             for key, result in results.items()
             if result["status"] == "available"
             and previous.targets.get(key, {}).get("status") != "available"
         }
+        # 관측 상태와 알림 대기 상태를 분리한다. 실패한 알림은 다음 실행에서 재시도한다.
+        pending = newly_available | {
+            key for key in previous.pending_available
+            if results.get(key, {}).get("status") != "unavailable"
+        }
+        # 확인불가/스캔 실패 동안은 대기 항목을 보존하되, 현재 예약가능한 항목만 알린다.
+        deliverable = {key for key in pending if results.get(key, {}).get("status") == "available"}
+        current = MonitorState(
+            run_status="ok", checked_at=checked_at, targets=results,
+            pending_available=sorted(pending),
+        )
+        save_state(current)
+        print(json.dumps(asdict(current), ensure_ascii=False))
         status_labels = {"available": "예약가능", "unavailable": "예약마감"}
 
         def format_line(key: str, result: dict[str, str], display: str | None = None) -> str:
             label = status_labels.get(result["status"], "확인불가")
-            flag = " 🎉 신규!" if key in newly_available else ""
+            flag = " 🎉 신규!" if key in deliverable else ""
             return f"- {display if display is not None else key}: {label}{flag}"
 
         seocho_target_keys = {target.key for target in TARGETS + extra_targets}
@@ -1460,17 +1492,26 @@ def run() -> int:
         has_unknown = any(result["status"] == "unknown" for result in results.values())
         # 매 체크마다 알리지 않고, 새로 열린 자리가 생기거나 상태를 못 읽은 경우(사이트
         # 개편 등으로 판정이 깨졌을 수 있음)에만 알린다.
-        if newly_available or has_unknown:
-            header = "[삼성 웨딩 취소표 발견]" if newly_available else "[삼성 웨딩 모니터] 상태 확인불가 ⚠️"
+        if deliverable or has_unknown:
+            header = "[삼성 웨딩 취소표 발견]" if deliverable else "[삼성 웨딩 모니터] 상태 확인불가 ⚠️"
             stamp = now.strftime("%m/%d %H:%M")
             try:
-                send_telegram(cap_message(f"{header} ({stamp} KST)\n\n{lines}\n\n{APPLICATION_URL}"))
-            except Exception as telegram_error:  # noqa: BLE001 - don't let a notification failure erase a successful check
-                print(f"상태 알림 전송 실패: {telegram_error}", file=sys.stderr)
+                message = f"{header} ({stamp} KST)\n\n{lines}\n\n{APPLICATION_URL}"
+                # 긴 메시지의 뒤쪽 취소표가 잘려 나가지 않도록 모두 나누어 보낸다.
+                for part in split_telegram_message(message):
+                    send_telegram(part)
+                current.pending_available = sorted(pending - deliverable)
+                save_state(current)
+            except Exception as telegram_error:  # noqa: BLE001 - keep pending alerts on disk
+                print(f"상태 알림 전송/저장 실패: {type(telegram_error).__name__}", file=sys.stderr)
+                return 1
         return 0
     except Exception as exc:  # noqa: BLE001 - workflow must persist diagnostics
         error = f"{type(exc).__name__}: {exc}"
-        save_state(MonitorState(run_status="error", checked_at=checked_at, error=error, targets=previous.targets))
+        save_state(MonitorState(
+            run_status="error", checked_at=checked_at, error=error,
+            targets=previous.targets, pending_available=previous.pending_available,
+        ))
         # 같은 오류가 반복될 때만 조용히 넘어간다. 오류 내용이 달라지면 새 실패이므로 알린다.
         if previous.run_status != "error" or previous.error != error:
             try:
@@ -1487,3 +1528,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

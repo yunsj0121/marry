@@ -4,7 +4,7 @@
 지망 목록을 우선순위대로 두고 마감이면 즉시 다음 지망으로 넘어간다.
 
 BOOKING_AUTO_SUBMIT=true면 정보입력 이후 '신청' 버튼까지 자동으로 눌러 사람 개입 없이
-끝낸다('신청' 클릭 후 확인창 없이 바로 종료되는 것을 실제 화면에서 확인함). false면
+진행하고 완료 문구를 확인한다. 결과가 불확실하면 추가 신청 없이 멈춘다. false면
 정보입력 화면 도달까지만 자동화하고 '신청'은 누르지 않은 채 멈춘다 - headless=False로
 로컬에서 직접 띄워서 실행하면, 정보입력까지 자동으로 도달한 그 화면을 사람이 그대로
 이어받아 '신청'을 누를 수도 있다.
@@ -17,9 +17,13 @@ BOOKING_AUTO_SUBMIT=true면 정보입력 이후 '신청' 버튼까지 자동으�
 from __future__ import annotations
 
 import json
+import os
+import re
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
@@ -34,7 +38,12 @@ from marry.monitor import (
     select_hall,
     send_telegram,
 )
-from marry.rehearse import capture_screen_only, check_all_agreements, fill_applicant_info
+from marry.rehearse import (
+    REQUIRED_APPLICANT_FIELDS,
+    capture_screen_only,
+    check_all_agreements,
+    fill_applicant_info,
+)
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -124,21 +133,77 @@ def proceed_to_info_form(page, label: str) -> bool:
         return False
 
     page.wait_for_timeout(1_000)
-    fill_applicant_info(page)
-    capture_screen_only(page, f"book-{label}")
-    return True
-
-
-def submit_application(page, label: str) -> bool:
-    """정보입력 화면에서 '신청' 버튼을 눌러 최종 제출한다.
-    클릭 후 별도 확인창 없이 바로 종료되는 것으로 확인됨."""
-    if not click_text(page, ["신청"], timeout=5_000):
-        print(f"[{label}] '신청' 버튼을 찾지 못함")
+    results = fill_applicant_info(page)
+    failed = [name for name in REQUIRED_APPLICANT_FIELDS if results.get(name) != "성공"]
+    if failed:
+        print(f"[{label}] 필수 입력 확인 실패: {', '.join(failed)}")
         return False
-    page.wait_for_timeout(1_500)
-    capture_screen_only(page, f"book-{label}-submitted")
-    print(f"[{label}] '신청' 버튼 클릭 완료")
+    capture_booking_screen(page, f"book-{label}")
     return True
+
+
+class SubmissionStatus(Enum):
+    CONFIRMED = "confirmed"
+    NOT_SUBMITTED = "not_submitted"
+    UNKNOWN = "unknown"
+
+
+# 메뉴의 '신청완료' 라벨과 구분되는 명시적인 완료 문장만 인정한다.
+SUCCESS_MESSAGE = re.compile(
+    r"^\s*(?:신청|예약)(?:이|가)?\s*(?:정상적으로\s*)?완료되었습니다[.!]?\s*$"
+)
+
+
+def notify_booking(message: str) -> bool:
+    """알림 실패는 예약 흐름으로 전파하지 않는다."""
+    try:
+        send_telegram(message)
+        return True
+    except Exception as exc:  # noqa: BLE001 - notification must never retry a booking
+        print(f"예약 알림 전송 실패: {type(exc).__name__}", file=sys.stderr)
+        return False
+
+
+def capture_booking_screen(page, label: str) -> None:
+    try:
+        capture_screen_only(page, label)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not change booking outcome
+        print(f"[{label}] 화면 저장 실패: {type(exc).__name__}", file=sys.stderr)
+
+
+def submit_application(page, label: str) -> SubmissionStatus:
+    """한 번만 제출하고 완료를 확인한다. 클릭 이후의 오류는 결과 불명으로 처리한다."""
+    try:
+        candidates = page.get_by_text(re.compile(r"^\s*신청\s*$"))
+        visible = [candidates.nth(i) for i in range(candidates.count())
+                   if candidates.nth(i).is_visible()]
+        if len(visible) != 1:
+            print(f"[{label}] '신청' 버튼을 하나로 특정하지 못함")
+            return SubmissionStatus.NOT_SUBMITTED
+        button = visible[0]
+        if not button.is_enabled():
+            return SubmissionStatus.NOT_SUBMITTED
+        selector = os.getenv("BOOKING_SUCCESS_SELECTOR", "").strip()
+        confirmation = page.locator(selector) if selector else page.get_by_text(SUCCESS_MESSAGE)
+        # 기존 화면의 완료 라벨을 이번 제출 결과로 잘못 인정하지 않는다.
+        if confirmation.count() and confirmation.first.is_visible():
+            print(f"[{label}] 제출 전부터 완료 표시가 있어 결과를 확인할 수 없음")
+            return SubmissionStatus.UNKNOWN
+    except Exception as exc:  # noqa: BLE001 - no click has happened yet
+        print(f"[{label}] 제출 준비 실패: {type(exc).__name__}")
+        return SubmissionStatus.NOT_SUBMITTED
+
+    try:
+        # click()의 타임아웃도 서버에 요청이 도착한 뒤 발생할 수 있으므로 재시도하지 않는다.
+        button.click(timeout=5_000)
+        confirmation.first.wait_for(state="visible", timeout=15_000)
+    except Exception as exc:  # noqa: BLE001 - submission may already have succeeded
+        print(f"[{label}] 제출 결과 확인불가: {type(exc).__name__}")
+        capture_booking_screen(page, f"book-{label}-unconfirmed")
+        return SubmissionStatus.UNKNOWN
+    capture_booking_screen(page, f"book-{label}-submitted")
+    print(f"[{label}] 신청 완료 표시 확인")
+    return SubmissionStatus.CONFIRMED
 
 
 def run(
@@ -166,26 +231,32 @@ def run(
                         continue
 
                     if not auto_submit:
-                        send_telegram(
+                        notify_booking(
                             f"[웨딩홀 예약] {index}지망 {target.label} 정보입력 화면까지 진입 성공.\n"
                             "지금 바로 확인해서 최종 신청을 완료하세요."
                         )
                         return True
 
-                    page.wait_for_timeout(500)
-                    if submit_application(page, label):
-                        send_telegram(f"[웨딩홀 예약] {index}지망 {target.label} 신청 완료!")
-                    else:
-                        send_telegram(
-                            f"[웨딩홀 예약] {index}지망 {target.label} 정보입력까지는 성공했지만 "
-                            "'신청' 버튼을 누르지 못했습니다. 직접 확인하세요."
-                        )
-                    return True
-                except Exception as exc:  # noqa: BLE001 - 한 지망 실패는 다음 지망 시도를 막지 않는다
-                    print(f"[{target.label}] 처리 중 오류: {exc}")
+                except Exception as exc:  # noqa: BLE001 - only pre-submission failures retry
+                    print(f"[{target.label}] 제출 전 처리 오류: {type(exc).__name__}")
                     continue
 
-            send_telegram("[웨딩홀 예약] 모든 지망이 마감되어 신청 화면에 진입하지 못했습니다.")
+                # 제출부터는 다음 지망으로 넘어가는 예외 처리 범위 밖에서 실행한다.
+                result = submit_application(page, label)
+                if result is SubmissionStatus.CONFIRMED:
+                    notify_booking(f"[웨딩홀 예약] {index}지망 {target.label} 신청 완료 확인!")
+                    return True
+                if result is SubmissionStatus.UNKNOWN:
+                    notify_booking(
+                        f"[웨딩홀 예약] {index}지망 {target.label} 제출 결과를 확인하지 못했습니다.\n"
+                        "중복 신청 방지를 위해 중단했습니다. 예약 내역을 직접 확인하세요."
+                    )
+                    return False
+                notify_booking(
+                    f"[웨딩홀 예약] {index}지망 {target.label} '신청' 버튼을 누르지 못했습니다."
+                )
+                return False
+            notify_booking("[웨딩홀 예약] 모든 지망에서 신청 화면 진입 또는 입력 확인에 실패했습니다.")
             return False
         finally:
             if not headless and not auto_submit:
@@ -200,8 +271,10 @@ def main() -> None:
     open_at = datetime.fromisoformat(required_env("BOOKING_OPEN_AT")).replace(tzinfo=KST)
     headless = required_env("BOOKING_HEADLESS").strip().lower() not in {"0", "false", "no"}
     auto_submit = required_env("BOOKING_AUTO_SUBMIT").strip().lower() not in {"0", "false", "no"}
-    run(targets, open_at, headless=headless, auto_submit=auto_submit)
+    success = run(targets, open_at, headless=headless, auto_submit=auto_submit)
+    raise SystemExit(0 if success else 1)
 
 
 if __name__ == "__main__":
     main()
+
