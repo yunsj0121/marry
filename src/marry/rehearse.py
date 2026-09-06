@@ -227,14 +227,10 @@ def fill_applicant_info(page) -> dict[str, str]:
         except PlaywrightTimeoutError:
             results[field_name] = "채우기 실패(타임아웃)"
 
-    fill_text("#wedgAplcnsBird", os.getenv("APPLICANT_BIRTHDATE_YYYYMMDD", "").strip(), "생년월일")
-    fill_text("#wedgAplcnsDeptNm", os.getenv("APPLICANT_DEPARTMENT", "").strip(), "부서명")
-    fill_text("#wedgAplcnsEmadre", os.getenv("APPLICANT_EMAIL_LOCAL", "").strip(), "이메일")
-    fill_text("#wedgAplcnsMpnoeB", os.getenv("APPLICANT_PHONE_SUFFIX", "").strip(), "휴대전화번호")
-
     # "구분" 라디오의 onchange가 EVENT.changeRelNm(...)을 호출하는데, 이게 신랑/신부
-    # 성명 입력칸을 초기화하는 것으로 확인됨(리허설로 실제 화면에서 확인). 그래서
-    # 구분을 먼저 선택하고, 이름은 그 다음에 채워야 지워지지 않는다.
+    # 성명뿐 아니라 생년월일/휴대전화번호 입력칸까지 초기화하는 것으로 확인됨
+    # (2027-08-28 19:00 테스트 실행에서 두 필드가 "최종 확인 실패"로 나온 사례).
+    # 그래서 텍스트 필드를 채우기 전에 구분부터 먼저 선택해야 지워지지 않는다.
     role = os.getenv("APPLICANT_ROLE", "").strip()
     role_id = {"부모": "fi_rd_parent", "신랑": "fi_rd_groom", "신부": "fi_rd_bride"}.get(role)
     if role_id:
@@ -249,6 +245,10 @@ def fill_applicant_info(page) -> dict[str, str]:
     else:
         results["구분"] = "값 없음(건너뜀)"
 
+    fill_text("#wedgAplcnsBird", os.getenv("APPLICANT_BIRTHDATE_YYYYMMDD", "").strip(), "생년월일")
+    fill_text("#wedgAplcnsDeptNm", os.getenv("APPLICANT_DEPARTMENT", "").strip(), "부서명")
+    fill_text("#wedgAplcnsEmadre", os.getenv("APPLICANT_EMAIL_LOCAL", "").strip(), "이메일")
+    fill_text("#wedgAplcnsMpnoeB", os.getenv("APPLICANT_PHONE_SUFFIX", "").strip(), "휴대전화번호")
     fill_text("#wedgAplcRlpplFnm1", os.getenv("GROOM_NAME", "").strip(), "신랑 성명")
     fill_text("#wedgAplcRlpplFnm2", os.getenv("BRIDE_NAME", "").strip(), "신부 성명")
 
