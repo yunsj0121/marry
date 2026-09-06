@@ -97,10 +97,30 @@ def wait_until(target: datetime) -> None:
         time.sleep(min(remaining, 30) if remaining > 5 else 0.05)
 
 
-def attempt_target(page, target: BookingTarget) -> bool:
-    """지망 하나를 시도한다. 홀 선택부터 시간대 클릭까지 성공하면 True."""
-    print(f"[시도] {target.label}")
+def previous_month(year: int, month: int) -> tuple[int, int]:
+    return (year, month - 1) if month > 1 else (year - 1, 12)
+
+
+def prepare_target(page, target: BookingTarget) -> None:
+    """오픈 전에 미리 홀을 선택하고 목표 달 바로 전 달까지 이동해 대기한다.
+    실제 신청 화면에서도 오픈 시각까지는 다음 달로 못 넘어가고, 정각이 되면
+    '다음달' 화살표 한 번 누른 뒤 날짜/시간을 클릭하는 방식이라는 걸 확인했다
+    (2027-11-21 오픈 케이스). 오픈 순간에 할 일을 최소화하기 위해, 대기 중에
+    미리 목표 달 전달까지 이동해두고 정각에는 '다음달' 한 번 + 날짜/시간
+    클릭만 하면 되도록 한다."""
+    prep_year, prep_month = previous_month(target.year, target.month)
     select_hall(page, target.hall)
+    go_to_target_month(page, prep_year, prep_month)
+    print(f"사전 준비 완료: {target.hall} {prep_year}-{prep_month:02d}월까지 미리 이동해 대기합니다.")
+
+
+def attempt_target(page, target: BookingTarget, *, reselect_hall: bool) -> bool:
+    """지망 하나를 시도한다. 시간대 클릭까지 성공하면 True.
+    reselect_hall이 False면 이미 해당 홀 페이지에 있다고 보고 다시 이동하지 않는다
+    (오픈 직전에 prepare_target으로 미리 가 있는 지망을 그대로 이어서 쓰기 위함)."""
+    print(f"[시도] {target.label}")
+    if reselect_hall:
+        select_hall(page, target.hall)
     go_to_target_month(page, target.year, target.month)
 
     if click_day_button(page, target.year, target.month, target.day) == "closed":
@@ -218,14 +238,22 @@ def run(
         page = context.new_page()
         try:
             login(page, employee_id, password)
-            print(f"로그인 완료. {open_at.isoformat()}까지 대기합니다.")
+
+            current_hall: str | None = None
+            if targets:
+                prepare_target(page, targets[0])
+                current_hall = targets[0].hall
+
+            print(f"{open_at.isoformat()}까지 대기합니다.")
             wait_until(open_at)
             print("오픈 시각 도달 - 지망 순서대로 시도합니다.")
 
             for index, target in enumerate(targets, start=1):
                 label = f"target{index}"
                 try:
-                    if not attempt_target(page, target):
+                    reselect_hall = target.hall != current_hall
+                    current_hall = target.hall
+                    if not attempt_target(page, target, reselect_hall=reselect_hall):
                         continue
                     if not proceed_to_info_form(page, label):
                         continue
