@@ -624,52 +624,64 @@ def login(page: Page, employee_id: str, password: str) -> None:
         "input[placeholder*=소속]",
         "input[type=text]",
     ]
-    for selector in company_inputs:
-        try:
-            page.locator(selector).first.fill("삼성화재", timeout=1_500)
-            click_text(page, ["검색", "조회"])
-            company_name = page.get_by_text(re.compile(r"^\s*삼성화재\s*$"))
-            # 검색 결과가 8초 안에 안 뜨는 사이트 쪽 지연이 있어(2026-09-01 run #826에서
-            # 실제로 검색 결과 자체가 안 뜬 채 실패한 사례 확인됨) 검색을 한 번 더
-            # 눌러 재시도한다.
+    # 로그인 페이지 자체가 domcontentloaded 이후에도 검색창을 늦게 그릴 때가
+    # 있어(2026-09-06 run #1352에서 회사 검색란을 아예 못 찾은 채 23초만에
+    # 실패한 사례 확인됨), company_inputs를 다 시도해도 회사 선택에 못 이르면
+    # 페이지를 새로고침해 한 번 더 시도한다.
+    company_selected = False
+    for reload_attempt in range(2):
+        for selector in company_inputs:
             try:
-                company_name.first.wait_for(state="visible", timeout=8_000)
-            except PlaywrightTimeoutError:
+                page.locator(selector).first.fill("삼성화재", timeout=1_500)
                 click_text(page, ["검색", "조회"])
-                company_name.first.wait_for(state="visible", timeout=8_000)
-            company_radios = page.locator("input[type=radio]")
-            if company_radios.count():
-                company_radios.first.evaluate(
-                    """element => {
-                        element.checked = true;
-                        element.dispatchEvent(new Event('input', { bubbles: true }));
-                        element.dispatchEvent(new Event('change', { bubbles: true }));
-                    }"""
-                )
-            elif not click_text(page, ["삼성화재"], timeout=3_000):
-                continue
+                company_name = page.get_by_text(re.compile(r"^\s*삼성화재\s*$"))
+                # 검색 결과가 8초 안에 안 뜨는 사이트 쪽 지연이 있어(2026-09-01 run #826에서
+                # 실제로 검색 결과 자체가 안 뜬 채 실패한 사례 확인됨) 검색을 한 번 더
+                # 눌러 재시도한다.
+                try:
+                    company_name.first.wait_for(state="visible", timeout=8_000)
+                except PlaywrightTimeoutError:
+                    click_text(page, ["검색", "조회"])
+                    company_name.first.wait_for(state="visible", timeout=8_000)
+                company_radios = page.locator("input[type=radio]")
+                if company_radios.count():
+                    company_radios.first.evaluate(
+                        """element => {
+                            element.checked = true;
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                            element.dispatchEvent(new Event('change', { bubbles: true }));
+                        }"""
+                    )
+                elif not click_text(page, ["삼성화재"], timeout=3_000):
+                    continue
 
-            # "선택 완료" 클릭 후 다음 화면(보안설치 확인 또는 로그인 폼)이 뜨는 게
-            # 사이트 쪽 지연으로 20초를 넘길 때가 있어(2026-08-28 run #450에서 실제로
-            # M1 화면에 멈춰 실패한 사례 확인됨), 한 번 더 눌러 재시도한다.
-            reached_next_step = False
-            for select_attempt in range(2):
-                if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
-                    break
-                for _ in range(40):
-                    if (
-                        has_visible_text(page, re.compile(r"보안프로그램\s*설치여부"))
-                        or has_visible_text(page, re.compile(r"사원번호.*아이디.*로그인"))
-                    ):
-                        reached_next_step = True
+                company_selected = True
+
+                # "선택 완료" 클릭 후 다음 화면(보안설치 확인 또는 로그인 폼)이 뜨는 게
+                # 사이트 쪽 지연으로 20초를 넘길 때가 있어(2026-08-28 run #450에서 실제로
+                # M1 화면에 멈춰 실패한 사례 확인됨), 한 번 더 눌러 재시도한다.
+                reached_next_step = False
+                for select_attempt in range(2):
+                    if not click_text(page, ["선택 완료", "선택완료"], timeout=4_000):
                         break
-                    page.wait_for_timeout(500)
-                if reached_next_step:
-                    break
-                print(f"'선택 완료' 이후 다음 화면 대기 실패(시도 {select_attempt + 1}/2) - 재시도")
+                    for _ in range(40):
+                        if (
+                            has_visible_text(page, re.compile(r"보안프로그램\s*설치여부"))
+                            or has_visible_text(page, re.compile(r"사원번호.*아이디.*로그인"))
+                        ):
+                            reached_next_step = True
+                            break
+                        page.wait_for_timeout(500)
+                    if reached_next_step:
+                        break
+                    print(f"'선택 완료' 이후 다음 화면 대기 실패(시도 {select_attempt + 1}/2) - 재시도")
+                break
+            except PlaywrightTimeoutError:
+                continue
+        if company_selected or reload_attempt == 1:
             break
-        except PlaywrightTimeoutError:
-            continue
+        print(f"회사 검색란을 찾지 못해 페이지를 새로고침 후 재시도합니다(시도 {reload_attempt + 1}/2)")
+        page.reload(wait_until="domcontentloaded", timeout=30_000)
 
     if has_visible_text(page, re.compile(r"보안프로그램\s*설치여부")):
         handle_security_page(page)
