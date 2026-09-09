@@ -1,6 +1,6 @@
 {
-  "run_status": "ok",
-  "checked_at": "2026-09-09T18:01:35+09:00",
+  "run_status": "error",
+  "checked_at": "2026-09-09T18:16:17+09:00",
   "targets": {
     "2027-08-28 17:00": {
       "status": "unavailable",
@@ -23,6 +23,6 @@
       "detail": "unavailable"
     }
   },
-  "error": "",
+  "error": "RuntimeError: 자동 로그인에 실패했습니다. 보안키패드 또는 추가 인증을 확인하세요.",
   "pending_available": []
 }
