@@ -1293,6 +1293,7 @@ def scan_month_for_openings(page: Page, year: int, month: int) -> dict[str, dict
     """이번 달 전체를 훑어, 마감 배지가 없는 날짜만 클릭해 실제 시간대 상태를 확인한다.
     달력에 이미 마감으로 표시된 날짜는 클릭하지 않아 실행 시간을 아낀다."""
     labels = scan_month_day_labels(page, year, month)
+    print(f"{year}-{month:02d} 날짜별 배지: {dict(sorted(labels.items()))}")
     results: dict[str, dict[str, str]] = {}
     for day, label in sorted(labels.items()):
         if "마감" in label:
