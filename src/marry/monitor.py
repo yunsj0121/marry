@@ -1031,8 +1031,13 @@ def go_to_target_month(page: Page, target_year: int, target_month: int) -> None:
         direction = "next" if (year, month) < (target_year, target_month) else "prev"
         month_label = page.get_by_text(re.compile(rf"{year}년\s*{month}월")).first
         if not click_month_nav(page, month_label, current, direction):
-            label = "다음" if direction == "next" else "이전"
-            raise RuntimeError(f"달력의 {label} 달 버튼을 찾지 못했습니다.")
+            # 여러 달을 연속으로 이동하는 도중 안내 팝업이 다시 뜨는 경우가 있어
+            # (2027-08-28 삼성금융연수원 확인에서 실제로 "다음달 버튼을 찾지 못함"으로
+            # 실패한 사례 확인됨), 팝업을 닫고 한 번 더 시도한다.
+            close_calendar_notice(page)
+            if not click_month_nav(page, month_label, current, direction):
+                label = "다음" if direction == "next" else "이전"
+                raise RuntimeError(f"달력의 {label} 달 버튼을 찾지 못했습니다.")
         page.wait_for_timeout(400)
     raise RuntimeError("36개월 안에서 목표 월을 찾지 못했습니다.")
 
