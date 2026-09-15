@@ -1120,7 +1120,14 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> str:
             f"{year}-{month:02d}-{day:02d} 버튼 상태: class={day_button.first.get_attribute('class')}, "
             f"visible={day_button.first.is_visible()}"
         )
-        day_button.first.click()
+        try:
+            day_button.first.click(timeout=5_000)
+        except PlaywrightTimeoutError:
+            # 실제 오픈 시각 직후 트래픽이 몰릴 때 "안내" 팝업이 새로 뜨면서 날짜 버튼을
+            # 가려 클릭이 막히는 경우가 실제로 확인됨(2027-11-21 서초사옥 오픈 시도).
+            # go_to_target_month/click_month_nav와 같은 방식으로 팝업을 닫고 한 번 더 시도한다.
+            close_calendar_notice(page)
+            day_button.first.click(timeout=5_000)
         page.wait_for_timeout(500)
         return "opened"
 
