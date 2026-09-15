@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import json
 import io
 import os
@@ -7,7 +8,7 @@ import re
 import sys
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -38,10 +39,22 @@ class Target:
     month: int
     day: int
     time: str
+    hall: str = TARGET_HALL
 
     @property
     def key(self) -> str:
-        return f"{self.year:04d}-{self.month:02d}-{self.day:02d} {self.time}"
+        date_time = f"{self.year:04d}-{self.month:02d}-{self.day:02d} {self.time}"
+        return date_time if self.hall == TARGET_HALL else f"{self.hall} {date_time}"
+
+
+def saturday_targets(hall: str, year: int, month: int, times: tuple[str, ...]) -> list[Target]:
+    """해당 연/월의 모든 토요일에 대해 지정된 시간대 타깃을 만든다."""
+    days_in_month = calendar.monthrange(year, month)[1]
+    saturdays = [
+        day for day in range(1, days_in_month + 1)
+        if date(year, month, day).weekday() == calendar.SATURDAY
+    ]
+    return [Target(year, month, day, time, hall) for day in saturdays for time in times]
 
 
 TARGETS: list[Target] = [
@@ -49,6 +62,10 @@ TARGETS: list[Target] = [
     Target(2027, 9, 4, "11:00"),
     Target(2027, 9, 4, "13:00"),
     Target(2027, 9, 4, "17:00"),
+    *saturday_targets(TARGET_HALL, 2027, 10, ("11:00", "13:00")),
+    *saturday_targets(TARGET_HALL, 2027, 11, ("11:00", "13:00")),
+    *saturday_targets(HALL_FINANCE, 2027, 10, ("11:00", "13:00")),
+    *saturday_targets(HALL_FINANCE, 2027, 11, ("11:00", "13:00")),
 ]
 
 
@@ -1387,17 +1404,24 @@ def run() -> int:
             page = context.new_page()
             try:
                 login(page, employee_id, password)
-                select_hall(page)
                 extra_targets = parse_extra_targets()
                 if extra_targets:
                     print(f"임시 확인 타깃: {[t.key for t in extra_targets]}")
                 results: dict[str, dict[str, str]] = {}
-                for target in sorted(
-                    TARGETS + extra_targets,
-                    key=lambda item: (item.year, item.month, item.day, item.time),
-                ):
-                    status, detail = read_target_status(page, target)
-                    results[target.key] = {"status": status, "detail": detail}
+                # 고정 타깃(TARGETS)은 홀이 여러 개일 수 있어 홀별로 묶어서 필요한 만큼만
+                # select_hall을 호출한다. 다만 실패를 여기서 삼키지는 않는다 - 이 타깃들은
+                # 클릭 시간 초과 등을 마감/확인불가로 오인해 실제 열린 자리를 놓치면 안 되므로,
+                # 실패 시 그대로 예외를 전파해 실행 전체를 오류로 처리한다.
+                target_halls = sorted({target.hall for target in TARGETS + extra_targets})
+                for hall in target_halls:
+                    select_hall(page, hall)
+                    hall_targets = sorted(
+                        (target for target in TARGETS + extra_targets if target.hall == hall),
+                        key=lambda item: (item.year, item.month, item.day, item.time),
+                    )
+                    for target in hall_targets:
+                        status, detail = read_target_status(page, target)
+                        results[target.key] = {"status": status, "detail": detail}
 
                 # 다른 홀(예: 삼성금융연수원)은 실패해도 서초사옥 결과는 그대로 알림이 가도록
                 # 홀 단위로 예외를 격리한다.
@@ -1496,8 +1520,14 @@ def run() -> int:
             flag = " 🎉 신규!" if key in deliverable else ""
             return f"- {display if display is not None else key}: {label}{flag}"
 
-        seocho_target_keys = {target.key for target in TARGETS + extra_targets}
-        other_halls = sorted({scan.hall for scan in HALL_DAY_SCANS} | {scan.hall for scan in HALL_MONTH_SCANS})
+        seocho_target_keys = {
+            target.key for target in TARGETS + extra_targets if target.hall == TARGET_HALL
+        }
+        other_halls = sorted(
+            {scan.hall for scan in HALL_DAY_SCANS}
+            | {scan.hall for scan in HALL_MONTH_SCANS}
+            | {target.hall for target in TARGETS + extra_targets if target.hall != TARGET_HALL}
+        )
         sections = []
         seocho_lines = [format_line(k, results[k]) for k in sorted(results) if k in seocho_target_keys]
         if seocho_lines:
