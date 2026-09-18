@@ -1,6 +1,6 @@
 import json
 import sys
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, PropertyMock
 
 import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -155,6 +155,28 @@ def test_fixed_target_timeout_fails_run_instead_of_reporting_closed(monitor_run)
     monitor.read_target_status.side_effect = RuntimeError('클릭 시간 초과')
     assert monitor_run() == 1
     assert monitor.load_previous_state().run_status == 'error'
+
+
+def test_slow_login_navigation_is_not_treated_as_failure(monkeypatch):
+    """제출 후 로그인 화면을 벗어나는 데 고정 대기(5초)보다 오래 걸려도,
+    기다리는 동안 넘어가면 로그인 성공으로 본다."""
+    monkeypatch.setattr(monitor, 'has_visible_text', Mock(return_value=False))
+    page = MagicMock()
+    login_urls = ['https://s-wedding.samsungcard.com/login/UWDDWSCO02M0.jsp'] * 3
+    type(page).url = PropertyMock(
+        side_effect=login_urls + ['https://s-wedding.samsungcard.com/internal/main.jsp']
+    )
+    assert monitor.wait_for_login_success(page) is True
+    assert page.wait_for_timeout.call_count == 3
+
+
+def test_login_still_fails_when_form_never_goes_away(monkeypatch):
+    monkeypatch.setattr(monitor, 'has_visible_text', Mock(return_value=True))
+    monkeypatch.setattr(monitor, 'LOGIN_SETTLE_ATTEMPTS', 4)
+    page = MagicMock()
+    page.url = 'https://s-wedding.samsungcard.com/internal/main.jsp'
+    assert monitor.wait_for_login_success(page) is False
+    assert page.wait_for_timeout.call_count == 4
 
 
 def test_message_split_rejects_zero_limit():
