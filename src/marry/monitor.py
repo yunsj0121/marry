@@ -31,6 +31,8 @@ KST = ZoneInfo("Asia/Seoul")
 # 텔레그램 메시지만으로 원인을 좁힐 수 있게 해 준다.
 DIAGNOSTIC_LINES: deque[str] = deque(maxlen=25)
 TELEGRAM_LIMIT = 4_000
+# 로그인 제출 후 로그인 화면을 벗어날 때까지 추가로 기다리는 횟수(×500ms).
+LOGIN_SETTLE_ATTEMPTS = 20
 
 
 @dataclass(frozen=True)
@@ -627,6 +629,18 @@ def wait_for_login_form(page: Page, attempts: int = 3) -> bool:
     return False
 
 
+def wait_for_login_success(page: Page) -> bool:
+    """로그인 제출 후 로그인 화면을 벗어났는지 확인한다. 제출 직후의 고정 대기(5초)보다
+    화면 전환이 늦어지는 경우가 실제로 확인돼(run #2317), 바로 실패로 단정하지 않고
+    잠시 더 기다린다 - 이 사이트는 회사 검색/보안 화면에서도 같은 렌더 지연이 반복됐다."""
+    login_form = re.compile(r"사원번호.*아이디.*로그인")
+    for _ in range(LOGIN_SETTLE_ATTEMPTS):
+        if "login" not in page.url.lower() and not has_visible_text(page, login_form):
+            return True
+        page.wait_for_timeout(500)
+    return False
+
+
 def login(page: Page, employee_id: str, password: str) -> None:
     def accept_dialog(dialog) -> None:
         print(f"브라우저 알림: {dialog.message}")
@@ -786,9 +800,8 @@ def login(page: Page, employee_id: str, password: str) -> None:
         except PlaywrightTimeoutError:
             pass
         page.wait_for_timeout(5_000)
-    if "login" in page.url.lower() or has_visible_text(
-        page, re.compile(r"사원번호.*아이디.*로그인")
-    ):
+    if not wait_for_login_success(page):
+        print(f"로그인 완료 대기 실패 URL: {page.url}")
         raise RuntimeError("자동 로그인에 실패했습니다. 보안키패드 또는 추가 인증을 확인하세요.")
 
 
