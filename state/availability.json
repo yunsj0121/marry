@@ -1,6 +1,6 @@
 {
-  "run_status": "ok",
-  "checked_at": "2026-09-21T08:46:12+09:00",
+  "run_status": "error",
+  "checked_at": "2026-09-21T09:01:27+09:00",
   "targets": {
     "삼성금융연수원 2027-10-02 11:00": {
       "status": "unavailable",
@@ -167,6 +167,6 @@
       "detail": "unavailable"
     }
   },
-  "error": "",
+  "error": "TimeoutError: Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"button[data-date=\\\"20270828\\\"]\").first\n",
   "pending_available": []
 }
