@@ -1,6 +1,6 @@
 {
-  "run_status": "ok",
-  "checked_at": "2026-09-21T11:16:25+09:00",
+  "run_status": "error",
+  "checked_at": "2026-09-21T11:31:34+09:00",
   "targets": {
     "삼성금융연수원 2027-10-02 11:00": {
       "status": "unavailable",
@@ -167,6 +167,6 @@
       "detail": "unavailable"
     }
   },
-  "error": "",
+  "error": "RuntimeError: 회사 선택 후 사원번호 로그인 화면으로 이동하지 못했습니다.",
   "pending_available": []
 }
