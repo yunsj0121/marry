@@ -33,6 +33,8 @@ DIAGNOSTIC_LINES: deque[str] = deque(maxlen=25)
 TELEGRAM_LIMIT = 4_000
 # 로그인 제출 후 로그인 화면을 벗어날 때까지 추가로 기다리는 횟수(×500ms).
 LOGIN_SETTLE_ATTEMPTS = 20
+# 날짜 버튼 클릭이 실패할 때 달력을 목표 월부터 다시 맞춰 재시도하는 횟수.
+DAY_CLICK_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -1135,17 +1137,21 @@ def click_table_day(page: Page, day: int) -> str | None:
 def click_day_button(page: Page, year: int, month: int, day: int) -> str:
     """반환값: "opened"(클릭 성공, 시간대 패널을 읽으면 됨) 또는 "closed"(구형 테이블
     달력에서 이미 마감/비활성으로 확인돼 클릭이 불필요함). 날짜를 아예 못 찾으면 RuntimeError."""
-    go_to_target_month(page, year, month)
-    print(f"목표 월 도달: {month_text(page)}")
-
     target_date = f"{year:04d}{month:02d}{day:02d}"
-    day_button = page.locator(f'button[data-date="{target_date}"]')
-    for _ in range(10):
-        if day_button.count() and day_button.first.is_visible():
-            break
-        page.wait_for_timeout(500)
+    click_timed_out = False
+    for attempt in range(DAY_CLICK_ATTEMPTS):
+        go_to_target_month(page, year, month)
+        print(f"목표 월 도달: {month_text(page)}")
 
-    if day_button.count():
+        day_button = page.locator(f'button[data-date="{target_date}"]')
+        for _ in range(10):
+            if day_button.count() and day_button.first.is_visible():
+                break
+            page.wait_for_timeout(500)
+
+        if not day_button.count():
+            break
+
         print(
             f"{year}-{month:02d}-{day:02d} 버튼 상태: class={day_button.first.get_attribute('class')}, "
             f"visible={day_button.first.is_visible()}"
@@ -1153,11 +1159,17 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> str:
         try:
             day_button.first.click(timeout=5_000)
         except PlaywrightTimeoutError:
-            # 실제 오픈 시각 직후 트래픽이 몰릴 때 "안내" 팝업이 새로 뜨면서 날짜 버튼을
-            # 가려 클릭이 막히는 경우가 실제로 확인됨(2027-11-21 서초사옥 오픈 시도).
-            # go_to_target_month/click_month_nav와 같은 방식으로 팝업을 닫고 한 번 더 시도한다.
-            close_calendar_notice(page)
-            day_button.first.click(timeout=5_000)
+            # 방금 보인다고 확인한 날짜 버튼이 클릭 시점에는 DOM에서 사라져 있는 경우가
+            # 있다(run #2831 - Playwright 콜로그상 locator가 끝내 resolve되지 않음).
+            # 홀을 바꾸면 달력 데이터를 비동기로 다시 불러오는 것으로 보여(select_hall 참고)
+            # 그 사이 달력이 통째로 다시 그려지며 표시 월이 되돌아가는 것으로 추정된다.
+            # 같은 locator를 다시 누르면 계속 실패하므로, 목표 월부터 다시 맞춘 뒤 찾는다.
+            click_timed_out = True
+            print(
+                f"{year}-{month:02d}-{day:02d} 클릭 실패"
+                f"(시도 {attempt + 1}/{DAY_CLICK_ATTEMPTS}) - 달력을 다시 맞춰 재시도"
+            )
+            continue
         page.wait_for_timeout(500)
         return "opened"
 
@@ -1173,6 +1185,10 @@ def click_day_button(page: Page, year: int, month: int, day: int) -> str:
         for i in range(min(total, 10))
     ]
     print(f"날짜 버튼 진단: 전체 data-date 버튼 수={total}, 샘플={sample}")
+    if click_timed_out:
+        raise RuntimeError(
+            f"{year}-{month:02d}-{day:02d} 날짜 버튼 클릭 시간 초과: 예약 상태 확인불가"
+        )
     raise RuntimeError(f"달력에서 {year}-{month:02d}-{day:02d}를 찾지 못했습니다.")
 
 
