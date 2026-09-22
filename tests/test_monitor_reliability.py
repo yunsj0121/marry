@@ -144,6 +144,40 @@ def test_explicit_closed_calendar_day_is_still_closed():
     button.click.assert_not_called()
 
 
+def day_button_page(click_results):
+    """data-date 달력에서 날짜 버튼을 찾은 뒤 클릭하는 흐름을 흉내낸다."""
+    page = MagicMock()
+    day_button = page.locator.return_value
+    day_button.count.return_value = 1
+    day_button.first.is_visible.return_value = True
+    day_button.first.get_attribute.return_value = 'ing'
+    day_button.first.click.side_effect = click_results
+    return page, day_button
+
+
+def test_day_button_click_retries_from_month_navigation(monkeypatch):
+    """클릭 순간 달력이 다시 그려져 날짜 버튼이 사라지면, 같은 locator를 다시 누르지 않고
+    목표 월부터 다시 맞춘 뒤 재시도한다."""
+    monkeypatch.setattr(monitor, 'go_to_target_month', Mock())
+    monkeypatch.setattr(monitor, 'month_text', Mock(return_value='2027년 8월'))
+    page, day_button = day_button_page([PlaywrightTimeoutError('사라짐'), None])
+
+    assert monitor.click_day_button(page, 2027, 8, 28) == 'opened'
+    assert monitor.go_to_target_month.call_count == 2
+    assert day_button.first.click.call_count == 2
+
+
+def test_day_button_click_timeout_is_unknown_not_missing(monkeypatch):
+    monkeypatch.setattr(monitor, 'go_to_target_month', Mock())
+    monkeypatch.setattr(monitor, 'month_text', Mock(return_value='2027년 8월'))
+    monkeypatch.setattr(monitor, 'click_table_day', Mock(return_value=None))
+    page, _ = day_button_page(PlaywrightTimeoutError('계속 사라짐'))
+
+    with pytest.raises(RuntimeError, match='확인불가'):
+        monitor.click_day_button(page, 2027, 8, 28)
+    assert monitor.go_to_target_month.call_count == monitor.DAY_CLICK_ATTEMPTS
+
+
 def test_per_hall_timeout_is_reported_unknown(monitor_run, monkeypatch):
     monkeypatch.setattr(monitor, 'HALL_DAY_SCANS', [monitor.HallDayScan('other', 2027, 9, 28)])
     monkeypatch.setattr(monitor, 'read_day_times', Mock(side_effect=RuntimeError('클릭 시간 초과')))
