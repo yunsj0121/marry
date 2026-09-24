@@ -24,6 +24,17 @@ def test_target_key_formats_as_iso_date_and_time() -> None:
     assert target.key == "2027-09-04 11:00"
 
 
+def test_both_halls_include_15_00_for_october_and_november_saturdays() -> None:
+    for hall in (monitor.TARGET_HALL, monitor.HALL_FINANCE):
+        for month in (10, 11):
+            month_targets = [
+                target for target in monitor.TARGETS
+                if target.hall == hall and target.year == 2027 and target.month == month
+            ]
+            assert {target.time for target in month_targets} == {"11:00", "13:00", "15:00"}
+            assert len(month_targets) == len({target.day for target in month_targets}) * 3
+
+
 def test_actions_run_url_builds_from_env(monkeypatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
