@@ -66,10 +66,10 @@ TARGETS: list[Target] = [
     Target(2027, 9, 4, "11:00"),
     Target(2027, 9, 4, "13:00"),
     Target(2027, 9, 4, "17:00"),
-    *saturday_targets(TARGET_HALL, 2027, 10, ("11:00", "13:00")),
-    *saturday_targets(TARGET_HALL, 2027, 11, ("11:00", "13:00")),
-    *saturday_targets(HALL_FINANCE, 2027, 10, ("11:00", "13:00")),
-    *saturday_targets(HALL_FINANCE, 2027, 11, ("11:00", "13:00")),
+    *saturday_targets(TARGET_HALL, 2027, 10, ("11:00", "13:00", "15:00")),
+    *saturday_targets(TARGET_HALL, 2027, 11, ("11:00", "13:00", "15:00")),
+    *saturday_targets(HALL_FINANCE, 2027, 10, ("11:00", "13:00", "15:00")),
+    *saturday_targets(HALL_FINANCE, 2027, 11, ("11:00", "13:00", "15:00")),
 ]
 
 
