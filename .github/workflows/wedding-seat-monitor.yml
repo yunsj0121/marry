@@ -1,20 +1,11 @@
 name: Wedding seat monitor
-# Application-button diagnostic
-
+# Temporarily paused on 2026-10-07 at the user's request.
+# To resume, restore the original schedule and workflow_dispatch triggers.
 on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/wedding-seat-monitor.yml"
-  schedule:
-    - cron: "7,27,47 7-22 * * *"
-      timezone: "Asia/Seoul"
-  workflow_dispatch:
-    inputs:
-      extra_targets:
-        description: "임시로 한 번만 확인할 타깃 (예: 2027-08-29 11:00,2027-08-29 13:00)"
-        required: false
-        default: ""
+      - ".codex/resume-wedding-seat-monitor"
 
 permissions:
   contents: write
@@ -41,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       # ghcr.io/yunsj0121/marry-ci 이미지에 이미 Python(+Chromium, tesseract)이
       # 들어있어서 actions/setup-python은 쓰지 않는다 - 컨테이너 안에서 setup-python이
-      # 자체 Python을 새로 받으려다 pip 실행 파일을 못 찾아 실패하는 걸 확인했음
+      # 자체 Python을 새로 받으려다 pip 실행 파일을 못 찾아 실패했음
       # (spawn pip ENOENT). 이미지에 내장된 python3를 그대로 쓴다.
       - name: Install project
         run: python3 -m pip install -e . pytest
